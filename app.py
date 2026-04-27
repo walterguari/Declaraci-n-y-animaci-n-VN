@@ -27,82 +27,80 @@ try:
     df = df_raw.dropna(how='all')
     df.columns = [str(c).strip() for c in df.columns]
 
-    # --- PROCESAMIENTO DE FECHAS ---
+    # --- PROCESAMIENTO DE LÓGICA DE CONTROL ---
     if "Fecha de Patentamiento" in df.columns:
         df["Fecha de Patentamiento"] = pd.to_datetime(df["Fecha de Patentamiento"], errors='coerce')
-        # Crear columna de Mes/Año para los botones
-        df["Mes_Patentamiento"] = df["Fecha de Patentamiento"].dt.strftime('%b %Y')
-        meses_disponibles = sorted(df["Mes_Patentamiento"].dropna().unique(), 
-                                   key=lambda x: pd.to_datetime(x, format='%b %Y'))
-    else:
-        meses_disponibles = []
+        df["Mes_Año"] = df["Fecha de Patentamiento"].dt.strftime('%m-%Y') # Formato para ordenar
+        df["Mes_Display"] = df["Fecha de Patentamiento"].dt.strftime('%b %Y')
+    
+    # Definición de Garantía (True si tiene fecha, False si está vacío)
+    col_ho = "Fecha de Hand over"
+    df['TIENE_HO'] = pd.to_datetime(df[col_ho], errors='coerce').notna() if col_ho in df.columns else False
+    
+    # Definición de Entregado
+    df['ES_ENTREGADO'] = df["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False) if "Estado" in df.columns else False
 
-    if "Fecha de Hand over" in df.columns:
-        df['TIENE_GARANTIA'] = pd.to_datetime(df["Fecha de Hand over"], errors='coerce').notna()
-    else:
-        df['TIENE_GARANTIA'] = False
+    # --- FILTRO DE MESES CON PENDIENTES ---
+    # Solo mostramos meses donde hay al menos una unidad Patentada que NO tiene Hand Over
+    meses_con_pendientes = df[~df['TIENE_HO']].sort_values("Fecha de Patentamiento")
+    opciones_meses = meses_con_pendientes["Mes_Display"].unique().tolist()
 
     # --- SIDEBAR (FILTROS IZQUIERDA) ---
-    st.sidebar.header("Filtros Avanzados")
-    
-    filtro_canal = st.sidebar.multiselect("Canal de Venta", options=df["Canal de Venta"].unique()) if "Canal de Venta" in df.columns else []
-    filtro_vendedor = st.sidebar.multiselect("Vendedor", options=df["Vendedor"].unique()) if "Vendedor" in df.columns else []
-    filtro_marca = st.sidebar.multiselect("Marca", options=df["Marca"].unique()) if "Marca" in df.columns else []
+    st.sidebar.header("Filtros de Categoría")
+    filtro_canal = st.sidebar.multiselect("Canal de Venta", options=sorted(df["Canal de Venta"].dropna().unique())) if "Canal de Venta" in df.columns else []
+    filtro_vendedor = st.sidebar.multiselect("Vendedor", options=sorted(df["Vendedor"].dropna().unique())) if "Vendedor" in df.columns else []
 
-    # --- BOTONES SUPERIORES (MESES) ---
-    st.write("### Seleccionar Mes de Patentamiento")
-    if meses_disponibles:
-        # Añadimos opción "Todos los meses"
-        opciones_mes = ["Todos"] + meses_disponibles
-        mes_seleccionado = st.pills("Meses detectados:", opciones_mes, default="Todos")
+    # --- BOTONES SUPERIORES (SOLO MESES CON PENDIENTES) ---
+    st.write("### 📅 Meses con Hand Over Pendientes")
+    if opciones_meses:
+        mes_sel = st.pills("Seleccioná un mes para auditar:", ["Todos"] + opciones_meses, default="Todos")
     else:
-        mes_seleccionado = "Todos"
+        st.success("✅ ¡Increíble! No se detectan meses con Hand Over pendientes.")
+        mes_sel = "Todos"
 
-    # --- LÓGICA DE FILTRADO ---
-    df_filtrado = df.copy()
-
-    if mes_seleccionado != "Todos":
-        df_filtrado = df_filtrado[df_filtrado["Mes_Patentamiento"] == mes_seleccionado]
-    
+    # --- LÓGICA DE FILTRADO FINAL ---
+    df_f = df.copy()
+    if mes_sel != "Todos":
+        df_f = df_f[df_f["Mes_Display"] == mes_sel]
     if filtro_canal:
-        df_filtrado = df_filtrado[df_filtrado["Canal de Venta"].isin(filtro_canal)]
-    
+        df_f = df_f[df_f["Canal de Venta"].isin(filtro_canal)]
     if filtro_vendedor:
-        df_filtrado = df_filtrado[df_filtrado["Vendedor"].isin(filtro_vendedor)]
-        
-    if filtro_marca:
-        df_filtrado = df_filtrado[df_filtrado["Marca"].isin(filtro_marca)]
+        df_f = df_f[df_f["Vendedor"].isin(filtro_vendedor)]
 
-    # --- MÉTRICAS ---
+    # --- MÉTRICAS DINÁMICAS ---
     st.divider()
-    m1, m2, m3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     
-    entregados = df_filtrado[df_filtrado["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)] if "Estado" in df_filtrado.columns else pd.DataFrame()
-    pendientes = entregados[~entregados['TIENE_GARANTIA']]
+    # Cálculos sobre la vista actual
+    total_patentados = len(df_f)
+    total_entregados = len(df_f[df_f['ES_ENTREGADO']])
+    faltan_ho = len(df_f[~df_f['TIENE_HO']]) # Todos los que no tienen fecha
     
-    m1.metric("Unidades en Vista", len(df_filtrado))
-    m2.metric("Pendientes Hand Over", len(pendientes), delta_color="inverse")
-    
-    eficiencia = (len(entregados[entregados['TIENE_GARANTIA']]) / len(entregados) * 100) if len(entregados) > 0 else 0
-    m3.metric("Eficacia Vista Actual", f"{eficiencia:.1f}%")
+    with c1:
+        st.metric("Patentados", total_patentados)
+    with c2:
+        st.metric("Entregados", total_entregados)
+    with c3:
+        st.metric("Faltan Hand Over", faltan_ho, delta="Acción requerida" if faltan_ho > 0 else None, delta_color="inverse")
+    with c4:
+        eficacia = (len(df_f[df_f['TIENE_HO']]) / total_patentados * 100) if total_patentados > 0 else 0
+        st.metric("% Eficacia", f"{eficacia:.1f}%")
 
-    # --- VISTA DE TABLA ---
-    st.subheader("📋 Listado Detallado")
+    # --- TABLA DETALLADA ---
+    st.subheader(f"📋 Detalle de Unidades - {mes_sel}")
     
-    # Filtro rápido de Garantía (Botones rápidos)
-    modo_ho = st.radio("Estado de Garantía:", ["Todos", "⚠️ Solo Pendientes", "✅ Completados"], horizontal=True)
+    # Selector rápido de tabla
+    modo_tabla = st.radio("Mostrar:", ["Solo Pendientes ⚠️", "Todos los del mes"], horizontal=True)
     
-    if modo_ho == "⚠️ Solo Pendientes":
-        df_final = pendientes
-    elif modo_ho == "✅ Completados":
-        df_final = entregados[entregados['TIENE_GARANTIA']]
+    if modo_tabla == "Solo Pendientes ⚠️":
+        df_final = df_f[~df_f['TIENE_HO']]
     else:
-        df_final = df_filtrado
+        df_final = df_f
 
     # Columnas finales
-    cols_presentes = [c for c in COLUMNAS_MOSTRAR if c in df_final.columns]
-    st.dataframe(df_final[cols_presentes], use_container_width=True, hide_index=True)
+    cols_existentes = [c for c in COLUMNAS_MOSTRAR if c in df_final.columns]
+    st.dataframe(df_final[cols_existentes], use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error("Error al configurar los filtros.")
+    st.error("Error al procesar el tablero dinámico.")
     st.write(e)
