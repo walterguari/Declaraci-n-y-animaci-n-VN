@@ -20,8 +20,8 @@ try:
     df.columns = [str(c).strip().upper() for c in df.columns]
 
     # Ahora buscamos las columnas por su nombre en mayúsculas
-    col_estado = 'ESTADO'
-    col_handover = 'FECHA DE HAND OVER'
+    col_estado = 'Estado'
+    col_handover = 'Fecha de hand over'
 
     if col_estado not in df.columns:
         st.error(f"⚠️ No encuentro la columna 'Estado'. Las columnas detectadas son: {list(df.columns)}")
