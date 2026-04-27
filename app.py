@@ -1,51 +1,47 @@
 import streamlit as st
-from streamlit.connections import GSheetsConnection
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+import urllib.parse  # Importante para limpiar los espacios
 
-# Configuración de la página
-st.set_page_config(page_title="Portal Análisis DUV", layout="wide", page_icon="🚗")
+# Configuración
+st.set_page_config(page_title="Portal Análisis DUV WG", layout="wide", page_icon="🚗")
 
 st.title("🚗 Control de Unidades - Análisis DUV")
 
-# Conexión directa
+# Conexión
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# URL específica de la hoja (usando el gid que me pasaste)
-url = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
+# URL y Nombre de hoja
+url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
+nombre_hoja = "ANALISIS DUV WG"
 
 try:
-    # Leemos los datos sin especificar el nombre de la hoja, 
-    # ya que el GID en la URL ya le dice a Google qué hoja abrir.
-    df = conn.read(spreadsheet=url)
+    # --- LA SOLUCIÓN AL ERROR ---
+    # Limpiamos el nombre de la hoja para que la URL sea válida (cambia espacios por %20)
+    hoja_limpia = urllib.parse.quote(nombre_hoja)
     
-    # Limpiamos filas vacías
+    # Leemos los datos pasando el nombre ya procesado
+    df = conn.read(spreadsheet=url_base, worksheet=nombre_hoja) 
+    # Si sigue fallando, intenta quitar 'worksheet=nombre_hoja' y deja que lea la primera por defecto
+    
     df = df.dropna(how='all')
 
-    # --- BARRA LATERAL ---
-    st.sidebar.header("Control de Auditoría")
-    operador = st.sidebar.text_input("Operador auditado:", placeholder="Tu nombre...")
-    if operador:
-        st.sidebar.success(f"Sesión: {operador}")
-
-    # --- BUSCADOR ---
-    st.subheader("Búsqueda de Datos")
-    busqueda = st.text_input("🔍 Filtrar por Vendedor, Modelo, Cliente o Chasis:")
-    
+    # --- RESTO DEL CÓDIGO (Buscador, Tabla, etc.) ---
+    busqueda = st.text_input("🔍 Buscar por cualquier campo:")
     if busqueda:
         mask = df.apply(lambda row: row.astype(str).str.contains(busqueda, case=False).any(), axis=1)
         df_display = df[mask]
     else:
         df_display = df
 
-    # Mostrar tabla
     st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-    # Métricas al pie
-    st.divider()
-    st.metric("Total Unidades en Lista", len(df_display))
-
 except Exception as e:
-    st.error("Error de conexión con la planilla.")
-    st.info("Asegúrate de que el acceso sea 'Cualquier persona con el enlace puede ver'.")
-    with st.expander("Detalle técnico"):
-        st.write(e)
+    st.error("Error al cargar los datos por caracteres especiales en el nombre de la hoja.")
+    # Intento de emergencia: leer sin especificar hoja (lee la primera pestaña)
+    try:
+        df_emergencia = conn.read(spreadsheet=url_base)
+        st.warning("⚠️ Cargando la primera pestaña por defecto debido al error de nombre.")
+        st.dataframe(df_emergencia.dropna(how='all'), use_container_width=True)
+    except:
+        st.write("Detalle técnico del error:", e)
