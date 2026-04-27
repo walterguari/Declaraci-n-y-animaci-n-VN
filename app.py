@@ -11,7 +11,7 @@ st.title("🛡️ Gestión de Hand Over y Garantías")
 conn = st.connection("gsheets", type=GSheetsConnection)
 url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
 
-# Definición de las columnas que pediste (en orden)
+# Columnas solicitadas
 COLUMNAS_MOSTRAR = [
     "Canal de Venta", "Vendedor", "Cliente", "Teléfono", "E-mail", 
     "Chasis", "Marca", "Modelo", "Fecha de Patentamiento", "Patente", 
@@ -19,76 +19,90 @@ COLUMNAS_MOSTRAR = [
     "Estado de Unidad por Administración/Mayorista", "Estado", 
     "Fecha de confirmacion de entrega", "Encuesta Temprana", 
     "Comentario Enc. Temp.", "EI - Reco", "Comentario de la Encuesta interna", 
-    "EI - CSI", "ESTADO INTERNO", "Fecha de Hand over" # Agregamos la de control al final
+    "EI - CSI", "ESTADO INTERNO", "Fecha de Hand over"
 ]
 
 try:
     df_raw = conn.read(spreadsheet=url_base)
     df = df_raw.dropna(how='all')
-
-    # --- NORMALIZACIÓN DE NOMBRES ---
-    # Limpiamos espacios para asegurar que coincidan con tu lista
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Verificamos cuáles de las columnas pedidas existen realmente en el Excel
-    cols_presentes = [c for c in COLUMNAS_MOSTRAR if c in df.columns]
-    
-    # --- PROCESAMIENTO DE LÓGICA ---
-    # Hand Over: Fecha cargada = Garantía OK / Vacío = Sin Garantía
+    # --- PROCESAMIENTO DE FECHAS ---
+    if "Fecha de Patentamiento" in df.columns:
+        df["Fecha de Patentamiento"] = pd.to_datetime(df["Fecha de Patentamiento"], errors='coerce')
+        # Crear columna de Mes/Año para los botones
+        df["Mes_Patentamiento"] = df["Fecha de Patentamiento"].dt.strftime('%b %Y')
+        meses_disponibles = sorted(df["Mes_Patentamiento"].dropna().unique(), 
+                                   key=lambda x: pd.to_datetime(x, format='%b %Y'))
+    else:
+        meses_disponibles = []
+
     if "Fecha de Hand over" in df.columns:
-        df['FECHA_HO_DT'] = pd.to_datetime(df["Fecha de Hand over"], errors='coerce')
-        df['TIENE_GARANTIA'] = df['FECHA_HO_DT'].notna()
+        df['TIENE_GARANTIA'] = pd.to_datetime(df["Fecha de Hand over"], errors='coerce').notna()
     else:
         df['TIENE_GARANTIA'] = False
 
-    # Estado Entregado
-    if "Estado" in df.columns:
-        df['ES_ENTREGADO'] = df["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)
+    # --- SIDEBAR (FILTROS IZQUIERDA) ---
+    st.sidebar.header("Filtros Avanzados")
+    
+    filtro_canal = st.sidebar.multiselect("Canal de Venta", options=df["Canal de Venta"].unique()) if "Canal de Venta" in df.columns else []
+    filtro_vendedor = st.sidebar.multiselect("Vendedor", options=df["Vendedor"].unique()) if "Vendedor" in df.columns else []
+    filtro_marca = st.sidebar.multiselect("Marca", options=df["Marca"].unique()) if "Marca" in df.columns else []
+
+    # --- BOTONES SUPERIORES (MESES) ---
+    st.write("### Seleccionar Mes de Patentamiento")
+    if meses_disponibles:
+        # Añadimos opción "Todos los meses"
+        opciones_mes = ["Todos"] + meses_disponibles
+        mes_seleccionado = st.pills("Meses detectados:", opciones_mes, default="Todos")
     else:
-        df['ES_ENTREGADO'] = False
+        mes_seleccionado = "Todos"
+
+    # --- LÓGICA DE FILTRADO ---
+    df_filtrado = df.copy()
+
+    if mes_seleccionado != "Todos":
+        df_filtrado = df_filtrado[df_filtrado["Mes_Patentamiento"] == mes_seleccionado]
+    
+    if filtro_canal:
+        df_filtrado = df_filtrado[df_filtrado["Canal de Venta"].isin(filtro_canal)]
+    
+    if filtro_vendedor:
+        df_filtrado = df_filtrado[df_filtrado["Vendedor"].isin(filtro_vendedor)]
+        
+    if filtro_marca:
+        df_filtrado = df_filtrado[df_filtrado["Marca"].isin(filtro_marca)]
 
     # --- MÉTRICAS ---
-    st.subheader("📊 Resumen de Estado")
+    st.divider()
     m1, m2, m3 = st.columns(3)
     
-    entregados = df[df['ES_ENTREGADO']]
+    entregados = df_filtrado[df_filtrado["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)] if "Estado" in df_filtrado.columns else pd.DataFrame()
     pendientes = entregados[~entregados['TIENE_GARANTIA']]
     
-    m1.metric("Total Entregados", len(entregados))
-    m2.metric("Pendientes de Garantía", len(pendientes), delta="- Acción Crítica" if len(pendientes) > 0 else "Al día", delta_color="inverse")
+    m1.metric("Unidades en Vista", len(df_filtrado))
+    m2.metric("Pendientes Hand Over", len(pendientes), delta_color="inverse")
     
     eficiencia = (len(entregados[entregados['TIENE_GARANTIA']]) / len(entregados) * 100) if len(entregados) > 0 else 0
-    m3.metric("Eficacia Hand Over", f"{eficiencia:.1f}%")
+    m3.metric("Eficacia Vista Actual", f"{eficiencia:.1f}%")
 
-    # --- FILTROS ---
-    st.divider()
-    vista = st.pills("Seleccionar Vista:", ["Todas las Unidades", "⚠️ Solo Pendientes de Hand Over", "✅ Garantías Declaradas"], default="Todas las Unidades")
-
-    if vista == "⚠️ Solo Pendientes de Hand Over":
-        df_final = pendientes
-    elif vista == "✅ Garantías Declaradas":
-        df_final = df[df['TIENE_GARANTIA']]
-    else:
-        df_final = df
-
-    # Buscador por texto
-    busqueda = st.text_input("🔍 Buscar por Cliente, Chasis o Vendedor:")
-    if busqueda:
-        mask = df_final.apply(lambda row: row.astype(str).str.contains(busqueda, case=False).any(), axis=1)
-        df_final = df_final[mask]
-
-    # --- MOSTRAR TABLA CON TUS COLUMNAS ---
-    # Solo mostramos las columnas que pediste y que existen en el archivo
-    df_mostrar = df_final[cols_presentes]
+    # --- VISTA DE TABLA ---
+    st.subheader("📋 Listado Detallado")
     
-    st.dataframe(
-        df_mostrar,
-        use_container_width=True,
-        hide_index=True
-    )
+    # Filtro rápido de Garantía (Botones rápidos)
+    modo_ho = st.radio("Estado de Garantía:", ["Todos", "⚠️ Solo Pendientes", "✅ Completados"], horizontal=True)
+    
+    if modo_ho == "⚠️ Solo Pendientes":
+        df_final = pendientes
+    elif modo_ho == "✅ Completados":
+        df_final = entregados[entregados['TIENE_GARANTIA']]
+    else:
+        df_final = df_filtrado
+
+    # Columnas finales
+    cols_presentes = [c for c in COLUMNAS_MOSTRAR if c in df_final.columns]
+    st.dataframe(df_final[cols_presentes], use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error("Error al cargar la tabla con las columnas especificadas.")
-    st.write("Asegúrate de que los nombres de las columnas en el Excel coincidan exactamente.")
-    with st.expander("Ver detalle técnico"):
-        st.write(e)
+    st.error("Error al configurar los filtros.")
+    st.write(e)
