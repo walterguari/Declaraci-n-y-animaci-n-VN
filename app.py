@@ -1,54 +1,55 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+import plotly.express as px # Librería para gráficos
 
-# 1. Configuración de la página
-st.set_page_config(page_title="Portal Análisis DUV WG", layout="wide")
+# Configuración
+st.set_page_config(page_title="Portal Análisis DUV WG", layout="wide", page_icon="🚗")
 
-st.title("🚗 Seguimiento de Unidades - Análisis DUV")
+st.title("🚗 Control de Unidades - Análisis DUV")
 
-# 2. Establecer conexión
-# Usamos la sintaxis estándar que requiere la librería st-gsheets-connection
+# Conexión
 conn = st.connection("gsheets", type=GSheetsConnection)
-
-# 3. URL y Nombre de hoja (Copiado de tu link y captura)
 url = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
-nombre_hoja = "ANALISIS DUV WG"
 
 try:
-    # 4. Lectura de datos
-    df = conn.read(spreadsheet=url, worksheet=nombre_hoja)
-    
-    # Limpieza de filas vacías
+    df = conn.read(spreadsheet=url, worksheet="ANALISIS DUV WG")
     df = df.dropna(how='all')
 
-    # --- Interfaz Lateral ---
+    # --- BARRA LATERAL ---
     st.sidebar.header("Control de Auditoría")
-    operador = st.sidebar.text_input("Operador auditado:", placeholder="Tu nombre aquí...")
-    
+    operador = st.sidebar.text_input("Operador auditado:")
     if operador:
-        st.sidebar.success(f"Operador: {operador}")
+        st.sidebar.success(f"Sesión: {operador}")
 
-    # --- Buscador y Tabla ---
-    st.subheader("Base de Datos en Tiempo Real")
-    busqueda = st.text_input("🔍 Buscar por cualquier campo (Vendedor, Cliente, Chasis...):")
-    
+    # --- BUSCADOR ---
+    busqueda = st.text_input("🔍 Buscar por cualquier campo:")
     if busqueda:
-        # Filtro global inteligente
         mask = df.apply(lambda row: row.astype(str).str.contains(busqueda, case=False).any(), axis=1)
-        df_mostrar = df[mask]
+        df_display = df[mask]
     else:
-        df_mostrar = df
+        df_display = df
 
-    # Mostrar la tabla
-    st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+    # --- SECCIÓN DE ESTADÍSTICAS ---
+    st.subheader("📊 Resumen de Gestión")
+    col_a, col_b = st.columns([1, 2])
+    
+    with col_a:
+        st.metric("Total Unidades", len(df_display))
+        # Botón para descargar lo que se ve en pantalla
+        csv = df_display.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Descargar Reporte (CSV)", data=csv, file_name="reporte_duv.csv", mime="text/csv")
 
-    # Métricas
-    st.divider()
-    st.metric("Total Unidades Encontradas", len(df_mostrar))
+    with col_b:
+        if "VENDEDOR" in df_display.columns:
+            # Gráfico rápido de unidades por vendedor
+            fig = px.bar(df_display['VENDEDOR'].value_counts(), title="Unidades por Vendedor", labels={'value':'Cantidad', 'index':'Vendedor'})
+            st.plotly_chart(fig, use_container_width=True)
+
+    # --- TABLA PRINCIPAL ---
+    st.subheader("Detalle de Unidades")
+    st.dataframe(df_display, use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"Error al conectar con la hoja '{nombre_hoja}'")
-    st.info("Asegúrate de que el archivo de Google Sheets sea público ('Cualquier persona con el enlace puede ver').")
-    with st.expander("Detalles del error"):
-        st.write(e)
+    st.error("Error al cargar los datos.")
+    st.write(e)
