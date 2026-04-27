@@ -1,36 +1,53 @@
 import streamlit as st
 from streamlit.connections import GSheetsConnection
+import pandas as pd
 
 # Configuración de la página
-st.set_page_config(page_title="Análisis DUV WG", layout="wide")
+st.set_page_config(page_title="Portal Análisis DUV", layout="wide")
 
-st.title("📊 Portal de Gestión - Análisis DUV")
+st.title("🚗 Control de Unidades - Análisis DUV")
 
 # Conexión
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# URL Limpia
+# URL de la planilla
 url = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
 
 try:
-    # Leemos la hoja usando el nombre exacto que vi en tu captura
+    # Leemos los datos. 
+    # Si da error con 'worksheet', intentamos leer la primera hoja por defecto
     df = conn.read(spreadsheet=url, worksheet="ANALISIS DUV WG")
     
-    # Barra lateral
-    st.sidebar.header("Auditoría")
+    # Limpieza básica
+    df = df.dropna(how='all')
+
+    # --- BARRA LATERAL ---
+    st.sidebar.header("Gestión de Auditoría")
+    
+    # Opción para escribir nombre directamente (sin sugerencias)
     operador = st.sidebar.text_input("Operador auditado:")
     if operador:
-        st.sidebar.success(f"Operador: {operador}")
+        st.sidebar.success(f"Sesión: {operador}")
 
-    # Buscador y Tabla
-    busqueda = st.text_input("🔍 Buscar unidad, asesor o cliente:")
+    # --- CUERPO PRINCIPAL ---
+    # Buscador general
+    busqueda = st.text_input("🔍 Buscar por Cliente, Vendedor o Chasis:")
+    
     if busqueda:
-        # Filtro que ignora mayúsculas/minúsculas
+        # Filtro inteligente en todas las columnas
         mask = df.apply(lambda row: row.astype(str).str.contains(busqueda, case=False).any(), axis=1)
-        df = df[mask]
+        df_filtrado = df[mask]
+    else:
+        df_filtrado = df
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    # Mostrar tabla
+    st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+
+    # Métricas al pie
+    st.divider()
+    st.metric("Total de Unidades en Pantalla", len(df_filtrado))
 
 except Exception as e:
-    st.error("Todavía hay un problema con la conexión.")
-    st.write(e)
+    st.error("Hubo un problema al cargar la hoja 'ANALISIS DUV WG'.")
+    st.info("Revisá que el nombre de la pestaña en el Excel sea exactamente ese, sin espacios extra.")
+    st.write("Detalle técnico:", e)
