@@ -2,52 +2,67 @@ import streamlit as st
 from streamlit.connections import GSheetsConnection
 import pandas as pd
 
-# Configuración de la página
-st.set_page_config(page_title="Portal Análisis DUV", layout="wide")
+# Configuración de la página (Título y disposición ancha)
+st.set_page_config(page_title="Portal Análisis DUV WG", layout="wide", page_icon="📊")
 
-st.title("🚗 Control de Unidades - Análisis DUV")
+st.title("🚗 Seguimiento de Unidades - Análisis DUV")
 
-# Conexión
+# 1. Establecer conexión con Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# URL de la planilla
+# 2. URL de la planilla y nombre de la hoja
 url = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
+nombre_hoja = "ANALISIS DUV WG"
 
 try:
-    # Leemos los datos. 
-    # Si da error con 'worksheet', intentamos leer la primera hoja por defecto
-    df = conn.read(spreadsheet=url, worksheet="ANALISIS DUV WG")
+    # Lectura de los datos
+    df = conn.read(spreadsheet=url, worksheet=nombre_hoja)
     
-    # Limpieza básica
+    # Limpiar filas completamente vacías
     df = df.dropna(how='all')
 
     # --- BARRA LATERAL ---
-    st.sidebar.header("Gestión de Auditoría")
+    st.sidebar.header("Control de Auditoría")
     
-    # Opción para escribir nombre directamente (sin sugerencias)
-    operador = st.sidebar.text_input("Operador auditado:")
+    # Opción para escribir el nombre directamente (sin sugerencias)
+    operador = st.sidebar.text_input("Operador auditado:", placeholder="Ingresa tu nombre...")
+    
     if operador:
         st.sidebar.success(f"Sesión: {operador}")
 
+    st.sidebar.divider()
+    st.sidebar.info("Usa el buscador central para filtrar por cualquier columna de la base.")
+
     # --- CUERPO PRINCIPAL ---
     # Buscador general
-    busqueda = st.text_input("🔍 Buscar por Cliente, Vendedor o Chasis:")
+    st.subheader("Búsqueda de Datos")
+    busqueda = st.text_input("🔍 Buscar por Cliente, Vendedor, Modelo o Chasis:", placeholder="Escribe aquí para filtrar...")
     
     if busqueda:
-        # Filtro inteligente en todas las columnas
+        # Filtro que busca en todas las columnas
         mask = df.apply(lambda row: row.astype(str).str.contains(busqueda, case=False).any(), axis=1)
-        df_filtrado = df[mask]
+        df_mostrar = df[mask]
     else:
-        df_filtrado = df
+        df_mostrar = df
 
-    # Mostrar tabla
-    st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+    # Mostrar la tabla de datos
+    st.dataframe(
+        df_mostrar, 
+        use_container_width=True, 
+        hide_index=True
+    )
 
-    # Métricas al pie
+    # Indicadores rápidos al final
     st.divider()
-    st.metric("Total de Unidades en Pantalla", len(df_filtrado))
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric("Total Unidades Filtradas", len(df_mostrar))
+    with c2:
+        if "VENDEDOR" in df.columns:
+            st.metric("Vendedores en la lista", df_mostrar["VENDEDOR"].nunique())
 
 except Exception as e:
-    st.error("Hubo un problema al cargar la hoja 'ANALISIS DUV WG'.")
-    st.info("Revisá que el nombre de la pestaña en el Excel sea exactamente ese, sin espacios extra.")
-    st.write("Detalle técnico:", e)
+    st.error(f"No se pudo cargar la hoja '{nombre_hoja}'.")
+    st.warning("Verifica que el nombre de la pestaña sea exacto y que el archivo tenga permisos de lectura.")
+    with st.expander("Ver detalle técnico"):
+        st.write(e)
