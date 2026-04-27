@@ -12,70 +12,74 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
 
 try:
-    # Lectura de datos (usando el GID de la URL para evitar errores de nombre de hoja)
+    # Lectura de datos
     df = conn.read(spreadsheet=url_base)
     df = df.dropna(how='all')
 
-    # --- NORMALIZACIÓN DE COLUMNAS ---
-    # Pasamos todo a MAYÚSCULAS y quitamos espacios para que el código no falle
-    df.columns = [str(c).strip().upper() for c in df.columns]
+    # --- IDENTIFICACIÓN ULTRA-FLEXIBLE DE COLUMNAS ---
+    # Normalizamos nombres de columnas para encontrarlas sin errores
+    cols_mapeo = {str(c).strip().upper(): c for c in df.columns}
+    
+    # Buscamos la columna de Estado (que contenga 'ESTADO')
+    col_estado_real = next((orig for norm, orig in cols_mapeo.items() if "ESTADO" in norm), None)
+    # Buscamos la de Hand Over (que contenga 'HAND')
+    col_ho_real = next((orig for norm, orig in cols_mapeo.items() if "HAND" in norm), None)
 
-    # Identificamos las columnas clave dinámicamente
-    col_estado = next((c for c in df.columns if "ESTADO" in c), None)
-    col_ho = next((c for c in df.columns if "HAND OVER" in c or "HANDOVER" in c), None)
-
-    if not col_estado:
-        st.error(f"❌ No se encontró la columna 'Estado'. Columnas detectadas: {list(df.columns)}")
+    if not col_estado_real:
+        st.error(f"❌ No se encontró la columna de 'Estado'. Columnas detectadas: {list(df.columns)}")
         st.stop()
 
-    # Formateamos la fecha de Hand Over
-    if col_ho:
-        df[col_ho] = pd.to_datetime(df[col_ho], errors='coerce')
+    # --- PROCESAMIENTO DE DATOS ---
+    # Creamos columnas auxiliares internas (no se ven en la tabla)
+    df['_ESTADO_LIMPIO'] = df[col_estado_real].astype(str).str.strip().str.upper()
+    
+    if col_ho_real:
+        df['_FECHA_HO_LIMPIA'] = pd.to_datetime(df[col_ho_real], errors='coerce')
     else:
-        df[col_ho] = pd.NA
+        df['_FECHA_HO_LIMPIA'] = pd.NA
 
     # --- LÓGICA DE NEGOCIO ---
-    # Unidades con estado 'ENTREGADO'
-    es_entregado = df[col_estado].astype(str).str.upper().str.contains('ENTREGADO', na=False)
-    # Unidades que ya tienen fecha cargada
-    tiene_ho = df[col_ho].notna()
+    # Filtramos: debe contener 'ENTREGADO' y NO tener fecha de Hand Over
+    es_entregado = df['_ESTADO_LIMPIO'].str.contains('ENTREGADO', na=False)
+    tiene_ho = df['_FECHA_HO_LIMPIA'].notna()
 
-    # Definimos los grupos
-    pendientes = df[es_entregado & ~tiene_ho]
-    completados = df[es_entregado & tiene_ho]
+    df_pendientes = df[es_entregado & ~tiene_ho].drop(columns=['_ESTADO_LIMPIO', '_FECHA_HO_LIMPIA'])
+    df_completados = df[es_entregado & tiene_ho].drop(columns=['_ESTADO_LIMPIO', '_FECHA_HO_LIMPIA'])
+    df_entregados_total = df[es_entregado].drop(columns=['_ESTADO_LIMPIO', '_FECHA_HO_LIMPIA'])
 
-    # --- DASHBOARD DE MÉTRICAS ---
+    # --- PANEL DE MÉTRICAS ---
     st.subheader("📊 Resumen de Gestión")
     m1, m2, m3 = st.columns(3)
     
-    total_entregados = len(df[es_entregado])
-    m1.metric("Total Entregados", total_entregados)
-    m2.metric("Pendientes HO", len(pendientes), delta="- Acción Requerida", delta_color="inverse")
+    total = len(df_entregados_total)
+    pendientes_n = len(df_pendientes)
+    cumplidos_n = len(df_completados)
     
-    eficiencia = (len(completados) / total_entregados * 100) if total_entregados > 0 else 0
-    m3.metric("Cumplimiento HO", f"{eficiencia:.1f}%")
+    m1.metric("Total Entregados", total)
+    m2.metric("Pendientes HO", pendientes_n, delta="- Acción Requerida" if pendientes_n > 0 else "Al día", delta_color="inverse")
+    
+    porcentaje = (cumplidos_n / total * 100) if total > 0 else 0
+    m3.metric("Cumplimiento HO", f"{porcentaje:.1f}%")
 
-    # --- FILTROS REACTIVOS ---
+    # --- INTERFAZ DE FILTROS ---
     st.divider()
-    st.subheader("🔍 Filtros de Visualización")
-    
-    # Botones de selección rápida
-    opciones = ["Todas", "Solo Pendientes ⚠️", "Completados ✅"]
-    vista = st.pills("Seleccioná qué unidades querés revisar:", opciones, default="Todas")
+    vista = st.pills("Seleccioná qué unidades querés revisar:", 
+                    ["Todas", "Solo Pendientes ⚠️", "Completados ✅"], 
+                    default="Todas")
 
-    # Lógica de filtrado de la tabla
+    # Selección del dataframe a mostrar
     if vista == "Solo Pendientes ⚠️":
-        df_final = pendientes
-        st.info(f"Mostrando {len(pendientes)} unidades entregadas que esperan Hand Over.")
+        df_final = df_pendientes
+        st.warning(f"Mostrando {len(df_pendientes)} unidades entregadas sin fecha de Hand Over.")
     elif vista == "Completados ✅":
-        df_final = completados
-        st.success(f"Mostrando {len(completados)} unidades con Hand Over finalizado.")
+        df_final = df_completados
+        st.success(f"Mostrando {len(df_completados)} unidades con proceso finalizado.")
     else:
-        df_final = df
-        st.caption(f"Mostrando base completa ({len(df)} unidades).")
+        df_final = df.drop(columns=['_ESTADO_LIMPIO', '_FECHA_HO_LIMPIA'])
+        st.info(f"Mostrando base completa ({len(df_final)} unidades).")
 
-    # Buscador manual extra
-    busqueda = st.text_input("Buscar por Chasis, Cliente o Vendedor:")
+    # Buscador adicional
+    busqueda = st.text_input("🔍 Buscar por Chasis, Cliente o Vendedor:")
     if busqueda:
         mask = df_final.apply(lambda row: row.astype(str).str.contains(busqueda, case=False).any(), axis=1)
         df_final = df_final[mask]
@@ -84,5 +88,5 @@ try:
     st.dataframe(df_final, use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error("Hubo un error al procesar la información.")
-    st.write("Detalle técnico:", e)
+    st.error("Error al procesar la planilla.")
+    st.write("Detalle:", e)
