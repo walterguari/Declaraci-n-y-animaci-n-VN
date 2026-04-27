@@ -1,68 +1,54 @@
 import streamlit as st
-from streamlit.connections import GSheetsConnection
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 
-# Configuración de la página (Título y disposición ancha)
-st.set_page_config(page_title="Portal Análisis DUV WG", layout="wide", page_icon="📊")
+# 1. Configuración de la página
+st.set_page_config(page_title="Portal Análisis DUV WG", layout="wide")
 
 st.title("🚗 Seguimiento de Unidades - Análisis DUV")
 
-# 1. Establecer conexión con Google Sheets
+# 2. Establecer conexión
+# Usamos la sintaxis estándar que requiere la librería st-gsheets-connection
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. URL de la planilla y nombre de la hoja
+# 3. URL y Nombre de hoja (Copiado de tu link y captura)
 url = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
 nombre_hoja = "ANALISIS DUV WG"
 
 try:
-    # Lectura de los datos
+    # 4. Lectura de datos
     df = conn.read(spreadsheet=url, worksheet=nombre_hoja)
     
-    # Limpiar filas completamente vacías
+    # Limpieza de filas vacías
     df = df.dropna(how='all')
 
-    # --- BARRA LATERAL ---
+    # --- Interfaz Lateral ---
     st.sidebar.header("Control de Auditoría")
-    
-    # Opción para escribir el nombre directamente (sin sugerencias)
-    operador = st.sidebar.text_input("Operador auditado:", placeholder="Ingresa tu nombre...")
+    operador = st.sidebar.text_input("Operador auditado:", placeholder="Tu nombre aquí...")
     
     if operador:
-        st.sidebar.success(f"Sesión: {operador}")
+        st.sidebar.success(f"Operador: {operador}")
 
-    st.sidebar.divider()
-    st.sidebar.info("Usa el buscador central para filtrar por cualquier columna de la base.")
-
-    # --- CUERPO PRINCIPAL ---
-    # Buscador general
-    st.subheader("Búsqueda de Datos")
-    busqueda = st.text_input("🔍 Buscar por Cliente, Vendedor, Modelo o Chasis:", placeholder="Escribe aquí para filtrar...")
+    # --- Buscador y Tabla ---
+    st.subheader("Base de Datos en Tiempo Real")
+    busqueda = st.text_input("🔍 Buscar por cualquier campo (Vendedor, Cliente, Chasis...):")
     
     if busqueda:
-        # Filtro que busca en todas las columnas
+        # Filtro global inteligente
         mask = df.apply(lambda row: row.astype(str).str.contains(busqueda, case=False).any(), axis=1)
         df_mostrar = df[mask]
     else:
         df_mostrar = df
 
-    # Mostrar la tabla de datos
-    st.dataframe(
-        df_mostrar, 
-        use_container_width=True, 
-        hide_index=True
-    )
+    # Mostrar la tabla
+    st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
 
-    # Indicadores rápidos al final
+    # Métricas
     st.divider()
-    c1, c2 = st.columns(2)
-    with c1:
-        st.metric("Total Unidades Filtradas", len(df_mostrar))
-    with c2:
-        if "VENDEDOR" in df.columns:
-            st.metric("Vendedores en la lista", df_mostrar["VENDEDOR"].nunique())
+    st.metric("Total Unidades Encontradas", len(df_mostrar))
 
 except Exception as e:
-    st.error(f"No se pudo cargar la hoja '{nombre_hoja}'.")
-    st.warning("Verifica que el nombre de la pestaña sea exacto y que el archivo tenga permisos de lectura.")
-    with st.expander("Ver detalle técnico"):
+    st.error(f"Error al conectar con la hoja '{nombre_hoja}'")
+    st.info("Asegúrate de que el archivo de Google Sheets sea público ('Cualquier persona con el enlace puede ver').")
+    with st.expander("Detalles del error"):
         st.write(e)
