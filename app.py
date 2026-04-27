@@ -2,16 +2,16 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 
-# 1. Configuración
+# 1. Configuración de la página
 st.set_page_config(page_title="Control de Garantías VN", layout="wide", page_icon="🛡️")
 
 st.title("🛡️ Gestión de Hand Over y Garantías")
 
-# 2. Conexión
+# 2. Conexión a Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
 
-# Columnas finales a mostrar
+# Listado de columnas ajustado (sin Canal, Modelo ni Mayorista)
 COLUMNAS_MOSTRAR = [
     "Vendedor", "Cliente", "Teléfono", "E-mail", 
     "Chasis", "Marca", "Fecha de Patentamiento", "Patente", 
@@ -22,47 +22,53 @@ COLUMNAS_MOSTRAR = [
 ]
 
 try:
+    # Lectura de datos
     df_raw = conn.read(spreadsheet=url_base)
     df = df_raw.dropna(how='all')
     df.columns = [str(c).strip() for c in df.columns]
 
-    # --- LIMPIEZA DE FECHAS ---
-    if "Fecha de Patentamiento" in df.columns:
-        df["Fecha de Patentamiento"] = pd.to_datetime(df["Fecha de Patentamiento"], errors='coerce')
-        # Filtramos solo las que SI tienen fecha para el display de meses
-        df_con_fecha = df.dropna(subset=["Fecha de Patentamiento"])
-        df["Mes_Display"] = df["Fecha de Patentamiento"].dt.strftime('%b %Y')
+    # --- PROCESAMIENTO DE FECHAS Y LOGICA ---
+    # Convertimos Fecha de Patentamiento y Hand Over a formato fecha
+    df["Fecha de Patentamiento"] = pd.to_datetime(df["Fecha de Patentamiento"], errors='coerce')
+    df["Fecha de Hand over"] = pd.to_datetime(df["Fecha de Hand over"], errors='coerce')
     
-    # Lógica de Hand Over (Solo contamos los que realmente están vacíos)
-    col_ho = "Fecha de Hand over"
-    df['TIENE_HO'] = pd.to_datetime(df[col_ho], errors='coerce').notna() if col_ho in df.columns else False
-    df['ES_ENTREGADO'] = df["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False) if "Estado" in df.columns else False
+    # Unidades con Hand Over cargado (Garantía OK)
+    df['TIENE_HO'] = df["Fecha de Hand over"].notna()
+    
+    # Unidades con Patentamiento (Para evitar el 'nan' en los botones)
+    df_con_patente = df.dropna(subset=["Fecha de Patentamiento"]).copy()
+    df_con_patente["Mes_Display"] = df_con_patente["Fecha de Patentamiento"].dt.strftime('%b %Y')
 
-    # --- FILTRO DE MESES (QUITANDO EL 'nan') ---
-    # Solo meses de unidades que no tienen HO y que tienen una fecha válida
-    meses_pendientes = df[~df['TIENE_HO']].dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
+    # --- SIDEBAR (FILTROS) ---
+    st.sidebar.header("Filtros de Categoría")
+    # El filtro de Canal de Venta sigue funcionando aunque no esté en la tabla
+    canales = sorted(df["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df.columns else []
+    filtro_canal = st.sidebar.multiselect("Canal de Venta", options=canales)
+    
+    vendedores = sorted(df["Vendedor"].dropna().unique()) if "Vendedor" in df.columns else []
+    filtro_vendedor = st.sidebar.multiselect("Vendedor", options=vendedores)
+
+    # --- BOTONES SUPERIORES (QUITANDO 'nan') ---
+    st.write("### 📅 Meses con Hand Over Pendientes")
+    
+    # Obtenemos meses SOLO de unidades que no tienen HO y que tienen fecha de patentamiento válida
+    meses_pendientes = df_con_patente[~df_con_patente['TIENE_HO']].sort_values("Fecha de Patentamiento")
     opciones_meses = meses_pendientes["Mes_Display"].unique().tolist()
 
-    # --- SIDEBAR ---
-    st.sidebar.header("Filtros de Categoría")
-    canal_opciones = sorted(df["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df.columns else []
-    filtro_canal = st.sidebar.multiselect("Canal de Venta", options=canal_opciones)
-    vendedor_opciones = sorted(df["Vendedor"].dropna().unique()) if "Vendedor" in df.columns else []
-    filtro_vendedor = st.sidebar.multiselect("Vendedor", options=vendedor_opciones)
-
-    # --- BOTONES SUPERIORES ---
-    st.write("### 📅 Meses con Hand Over Pendientes")
     if opciones_meses:
-        # Eliminamos cualquier valor nulo de la lista de botones
-        mes_sel = st.pills("Seleccioná un mes para auditar:", ["Todos"] + [m for m in opciones_meses if str(m) != 'nan'], default="Todos")
+        mes_sel = st.pills("Seleccioná un mes para auditar:", ["Todos"] + opciones_meses, default="Todos")
     else:
-        st.success("✅ ¡Al día! No hay pendientes con fecha de patentamiento.")
+        st.success("✅ ¡Todo al día! No se detectan meses con pendientes de Hand Over.")
         mes_sel = "Todos"
 
-    # --- FILTRADO FINAL ---
+    # --- FILTRADO DE DATOS ---
     df_f = df.copy()
+    
+    # Aplicar filtro de mes (usando la transformación de fecha)
     if mes_sel != "Todos":
-        df_f = df_f[df_f["Mes_Display"] == mes_sel]
+        df_f = df_f[df_f["Fecha de Patentamiento"].dt.strftime('%b %Y') == mes_sel]
+    
+    # Aplicar filtros de sidebar
     if filtro_canal:
         df_f = df_f[df_f["Canal de Venta"].isin(filtro_canal)]
     if filtro_vendedor:
@@ -72,31 +78,43 @@ try:
     st.divider()
     c1, c2, c3, c4 = st.columns(4)
     
-    # Patentados: Todos los que tienen una fecha de patentamiento válida en la vista
-    val_patentados = df_f.dropna(subset=["Fecha de Patentamiento"])
+    # Patentados: Unidades que tienen fecha de patentamiento en la selección actual
+    patentados_vista = df_f[df_f["Fecha de Patentamiento"].notna()]
+    # Entregados: Unidades con estado 'ENTREGADO'
+    entregados_vista = df_f[df_f["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
+    # Faltan HO: Patentados que NO tienen fecha de Hand Over
+    faltan_ho_vista = patentados_vista[~patentados_vista['TIENE_HO']]
     
     with c1:
-        st.metric("Patentados", len(val_patentados))
+        st.metric("Patentados", len(patentados_vista))
     with c2:
-        st.metric("Entregados", len(df_f[df_f['ES_ENTREGADO']]))
+        st.metric("Entregados", len(entregados_vista))
     with c3:
-        # Faltan HO: Son los que NO tienen fecha de Hand Over cargada
-        n_faltan = len(df_f[~df_f['TIENE_HO']])
-        st.metric("Faltan Hand Over", n_faltan, delta="Acción requerida" if n_faltan > 0 else None, delta_color="inverse")
+        st.metric("Faltan Hand Over", len(faltan_ho_vista), 
+                  delta="Acción requerida" if len(faltan_ho_vista) > 0 else None, 
+                  delta_color="inverse")
     with c4:
-        # Eficacia: (Unidades con HO / Total Patentados)
-        n_con_ho = len(df_f[df_f['TIENE_HO']])
-        eficacia = (n_con_ho / len(val_patentados) * 100) if len(val_patentados) > 0 else 0
+        eficacia = (len(patentados_vista[patentados_vista['TIENE_HO']]) / len(patentados_vista) * 100) if len(patentados_vista) > 0 else 0
         st.metric("% Eficacia", f"{eficacia:.1f}%")
 
-    # --- TABLA ---
+    # --- TABLA DETALLADA ---
     st.subheader(f"📋 Detalle de Unidades - {mes_sel}")
-    modo = st.radio("Mostrar:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True)
+    modo_tabla = st.radio("Mostrar en tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True)
     
-    df_tab = df_f[~df_f['TIENE_HO']] if modo == "Solo Pendientes ⚠️" else df_f
-    
-    cols_finales = [c for c in COLUMNAS_MOSTRAR if c in df_tab.columns]
-    st.dataframe(df_tab[cols_existentes], use_container_width=True, hide_index=True)
+    if modo_tabla == "Solo Pendientes ⚠️":
+        df_final = faltan_ho_vista
+    else:
+        df_final = df_f
+
+    # Buscador manual
+    busqueda = st.text_input("🔍 Buscar por Chasis, Cliente o Vendedor:")
+    if busqueda:
+        mask = df_final.apply(lambda row: row.astype(str).str.contains(busqueda, case=False).any(), axis=1)
+        df_final = df_final[mask]
+
+    # Columnas finales
+    cols_existentes = [c for c in COLUMNAS_MOSTRAR if c in df_final.columns]
+    st.dataframe(df_final[cols_existentes], use_container_width=True, hide_index=True)
 
 except Exception as e:
     st.error("Error al procesar el tablero.")
