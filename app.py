@@ -2,36 +2,34 @@ import streamlit as st
 from streamlit.connections import GSheetsConnection
 import pandas as pd
 
-# 1. Configuración de la página
-st.set_page_config(page_title="Portal Análisis DUV WG", layout="wide", page_icon="🚗")
+# Configuración de la página
+st.set_page_config(page_title="Portal Análisis DUV", layout="wide", page_icon="🚗")
 
 st.title("🚗 Control de Unidades - Análisis DUV")
 
-# 2. Conexión
+# Conexión directa
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 3. URL de la planilla (Link que me pasaste)
+# URL específica de la hoja (usando el gid que me pasaste)
 url = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
 
 try:
-    # --- LA SOLUCIÓN ---
-    # Usamos query para forzar la lectura de la hoja específica evitando el error de URL
-    # Esto lee la pestaña "ANALISIS DUV WG" de forma más robusta
-    df = conn.read(
-        spreadsheet=url, 
-        worksheet="ANALISIS DUV WG", 
-        ttl="0" # Forzamos a que no use caché vieja con errores
-    )
+    # Leemos los datos sin especificar el nombre de la hoja, 
+    # ya que el GID en la URL ya le dice a Google qué hoja abrir.
+    df = conn.read(spreadsheet=url)
     
     # Limpiamos filas vacías
     df = df.dropna(how='all')
 
-    # --- Interfaz ---
-    st.sidebar.header("Control")
-    operador = st.sidebar.text_input("Operador auditado:")
-    
-    # Buscador inteligente
-    busqueda = st.text_input("🔍 Buscar por cualquier dato (Vendedor, Modelo, Chasis, Cliente):")
+    # --- BARRA LATERAL ---
+    st.sidebar.header("Control de Auditoría")
+    operador = st.sidebar.text_input("Operador auditado:", placeholder="Tu nombre...")
+    if operador:
+        st.sidebar.success(f"Sesión: {operador}")
+
+    # --- BUSCADOR ---
+    st.subheader("Búsqueda de Datos")
+    busqueda = st.text_input("🔍 Filtrar por Vendedor, Modelo, Cliente o Chasis:")
     
     if busqueda:
         mask = df.apply(lambda row: row.astype(str).str.contains(busqueda, case=False).any(), axis=1)
@@ -39,15 +37,15 @@ try:
     else:
         df_display = df
 
-    # Mostrar Tabla
+    # Mostrar tabla
     st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-    # Métricas
+    # Métricas al pie
     st.divider()
-    st.metric("Total Unidades", len(df_display))
+    st.metric("Total Unidades en Lista", len(df_display))
 
 except Exception as e:
-    st.error("Error crítico de URL detectado.")
-    st.info("Si el error persiste, la solución más rápida es cambiar el nombre de la pestaña en Google Sheets a 'ANALISIS_DUV_WG' (con guiones bajos) y actualizarlo en el código.")
-    with st.expander("Detalle del error"):
+    st.error("Error de conexión con la planilla.")
+    st.info("Asegúrate de que el acceso sea 'Cualquier persona con el enlace puede ver'.")
+    with st.expander("Detalle técnico"):
         st.write(e)
