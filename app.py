@@ -23,12 +23,27 @@ COLUMNAS_HO = [
 ]
 
 try:
-    # Lectura de datos
+    # --- CARGA DE DATOS ---
     df_raw = conn.read(spreadsheet=url_base)
-    df = df_raw.dropna(how='all')
-    df.columns = [str(c).strip() for c in df.columns]
+    df_base = df_raw.dropna(how='all')
+    df_base.columns = [str(c).strip() for c in df_base.columns]
 
-    # --- PROCESAMIENTO DE DATOS GLOBAL ---
+    # --- SIDEBAR (FILTRO GLOBAL) ---
+    st.sidebar.header("Filtros Globales")
+    canales = sorted(df_base["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df_base.columns else []
+    filtro_canal = st.sidebar.multiselect("Canal de Venta", options=canales)
+    
+    vendedores = sorted(df_base["Vendedor"].dropna().unique()) if "Vendedor" in df_base.columns else []
+    filtro_vendedor = st.sidebar.multiselect("Vendedor", options=vendedores)
+
+    # --- APLICACIÓN DEL FILTRO GLOBAL ---
+    df = df_base.copy()
+    if filtro_canal:
+        df = df[df["Canal de Venta"].isin(filtro_canal)]
+    if filtro_vendedor:
+        df = df[df["Vendedor"].isin(filtro_vendedor)]
+
+    # --- PROCESAMIENTO GLOBAL DE FECHAS ---
     cols_a_fecha = [
         "Fecha de Patentamiento", "Fecha de Hand over", "Fecha de Facturacion",
         "Fecha que el Gestor Retira Doc", "Fecha Disponibilidad Papeles",
@@ -38,6 +53,7 @@ try:
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors='coerce')
 
+    # Auxiliares globales
     df['TIENE_HO'] = df["Fecha de Hand over"].notna()
     df["Mes_Display"] = df["Fecha de Patentamiento"].dt.strftime('%b %Y')
     col_ei = "ESTADO INTERNO"
@@ -56,7 +72,6 @@ try:
     with tab_ho:
         st.header("Gestión de Hand Over y Garantías")
         
-        # Filtros en Cascada
         st.write("### 📅 1. Seleccioná el Mes con Pendientes")
         meses_pendientes = df[~df['TIENE_HO']].dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
         opciones_meses = meses_pendientes["Mes_Display"].unique().tolist()
@@ -70,17 +85,9 @@ try:
         est_disponibles = sorted([e for e in df_temp_ei[col_ei].unique() if e.upper() not in ["NAN", "", "NONE"]])
         ei_sel = st.pills("Categorías con pendientes:", ["Todos"] + est_disponibles, default="Todos", key="p_ei")
 
-        st.sidebar.header("Filtros de Categoría")
-        canales = sorted(df["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df.columns else []
-        filtro_canal = st.sidebar.multiselect("Canal de Venta", options=canales)
-        vendedores = sorted(df["Vendedor"].dropna().unique()) if "Vendedor" in df.columns else []
-        filtro_vendedor = st.sidebar.multiselect("Vendedor", options=vendedores)
-
         df_f = df.copy()
         if mes_sel != "Todos": df_f = df_f[df_f["Mes_Display"] == mes_sel]
         if ei_sel != "Todos": df_f = df_f[df_f[col_ei] == ei_sel]
-        if filtro_canal: df_f = df_f[df_f["Canal de Venta"].isin(filtro_canal)]
-        if filtro_vendedor: df_f = df_f[df_f["Vendedor"].isin(filtro_vendedor)]
 
         st.divider()
         c1, c2, c3, c4 = st.columns(4)
@@ -107,7 +114,7 @@ try:
         st.dataframe(df_final[cols_ok], use_container_width=True, hide_index=True)
 
     # ---------------------------------------------------------
-    # PESTAÑA 2: ANÁLISIS DE TIEMPOS Y VOLÚMENES (CON DÍAS HÁBILES)
+    # PESTAÑA 2: ANÁLISIS DE TIEMPOS Y VOLÚMENES (FILTRO GLOBAL + HÁBILES)
     # ---------------------------------------------------------
     with tab_tiempos:
         st.header("⏱️ Análisis de Tiempos y Volúmenes Operativos")
@@ -128,7 +135,6 @@ try:
         with g_col2:
             tipo_g = st.pills("Evolución Mensual de:", ["Facturación", "Patentamiento"], default="Facturación", key="pill_tipo_t")
 
-        # Ajuste de filtro para que la tabla sea coherente con lo seleccionado
         col_f = "Fecha de Facturacion" if tipo_g == "Facturación" else "Fecha de Patentamiento"
         df_g = df[df[col_f].dt.year == año_sel].copy()
         
@@ -150,8 +156,7 @@ try:
                 st.success(f"🔎 Auditando {tipo_g}: **{mes_click} {año_sel}**")
 
         # --- LÓGICA DE DÍAS HÁBILES ---
-        # Ahora df_t contiene a todos los del año o mes seleccionado por el botón de Facturación/Patentamiento
-        df_t = df_g.copy() if mes_click else df_g.copy() # Cambiado de df.copy a df_g para respetar el filtro de volumen inicial
+        df_t = df_g.copy()
         if mes_click:
             df_t = df_t[df_t["Mes_Nom"] == mes_click]
 
@@ -169,7 +174,6 @@ try:
         df_t["Papeles a Entrega"] = df_t.apply(lambda r: calc_working_days(r["Fecha Disponibilidad Papeles"], r["Fecha de confirmacion de entrega"]), axis=1)
         df_t["Demora Total"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha de confirmacion de entrega"]), axis=1)
 
-        # --- MÉTRICAS CON OBJETIVOS Y AYUDA ---
         st.divider()
         st.subheader(f"⏳ Promedios Días Hábiles - {mes_click if mes_click else 'Anual'}")
         mt1, mt2, mt3, mt4 = st.columns(4)
@@ -193,7 +197,8 @@ try:
                    help="Suma total de días hábiles desde Facturación.")
 
         st.subheader(f"📋 Detalle de Unidades ({tipo_g} en el periodo)")
-        cols_t_view = ["Vendedor", "Cliente", "Chasis", "Facturación a Gestor", "Gestoría", "Papeles a Entrega", "Demora Total", "Estado"]
+        # --- COLUMNA AGREGADA: Fecha de confirmacion de entrega ---
+        cols_t_view = ["Vendedor", "Cliente", "Chasis", "Facturación a Gestor", "Gestoría", "Papeles a Entrega", "Demora Total", "Fecha de confirmacion de entrega", "Estado"]
         st.dataframe(df_t[cols_t_view], use_container_width=True, hide_index=True)
 
     # ---------------------------------------------------------
@@ -201,6 +206,7 @@ try:
     # ---------------------------------------------------------
     with tab_graficos:
         st.header("Análisis Visual de Gestión")
+        # fal_v ya viene filtrado globalmente
         if 'fal_v' in locals() and not fal_v.empty:
             g1, g2 = st.columns(2)
             with g1:
@@ -211,6 +217,8 @@ try:
             with g2:
                 st.write("### Estado Interno de los Pendientes")
                 st.plotly_chart(px.pie(fal_v, names="ESTADO INTERNO", hole=0.4), use_container_width=True)
+        else:
+            st.success("Sin pendientes de Hand Over para mostrar gráficos.")
 
 except Exception as e:
     st.error(f"Error al cargar el portal: {e}")
