@@ -51,7 +51,7 @@ try:
     ])
 
     # ---------------------------------------------------------
-    # PESTAÑA 1: GESTIÓN DE HAND OVER (Lógica de cascada mantenida)
+    # PESTAÑA 1: GESTIÓN DE HAND OVER
     # ---------------------------------------------------------
     with tab_ho:
         st.header("Gestión de Hand Over y Garantías")
@@ -76,14 +76,14 @@ try:
         vendedores = sorted(df["Vendedor"].dropna().unique()) if "Vendedor" in df.columns else []
         filtro_vendedor = st.sidebar.multiselect("Vendedor", options=vendedores)
 
-        # Lógica de filtrado Pestaña 1
+        # Lógica de filtrado
         df_f = df.copy()
         if mes_sel != "Todos": df_f = df_f[df_f["Mes_Display"] == mes_sel]
         if ei_sel != "Todos": df_f = df_f[df_f[col_ei] == ei_sel]
         if filtro_canal: df_f = df_f[df_f["Canal de Venta"].isin(filtro_canal)]
         if filtro_vendedor: df_f = df_f[df_f["Vendedor"].isin(filtro_vendedor)]
 
-        # Métricas Pestaña 1
+        # Métricas principales
         st.divider()
         c1, c2, c3, c4 = st.columns(4)
         pat_v = df_f[df_f["Fecha de Patentamiento"].notna()]
@@ -109,7 +109,7 @@ try:
         st.dataframe(df_final[cols_ok], use_container_width=True, hide_index=True)
 
     # ---------------------------------------------------------
-    # PESTAÑA 2: ANÁLISIS DE TIEMPOS Y VOLÚMENES (AJUSTADA)
+    # PESTAÑA 2: ANÁLISIS DE TIEMPOS Y VOLÚMENES
     # ---------------------------------------------------------
     with tab_tiempos:
         st.header("⏱️ Análisis de Tiempos y Volúmenes Operativos")
@@ -170,10 +170,16 @@ try:
         st.divider()
         st.subheader(f"⏳ Promedios de Demora - {mes_click if mes_click else 'Anual'}")
         mt1, mt2, mt3, mt4 = st.columns(4)
-        mt1.metric("Fact. a Gestor", f"{df_t['Facturación a Gestor'].mean():.1f} d")
-        mt2.metric("Gestión Gestor", f"{df_t['Gestoría (Retiro a Papeles)'].mean():.1f} d")
-        mt3.metric("Papeles a Entrega", f"{df_t['Entrega (Papeles a Entrega)'].mean():.1f} d")
-        mt4.metric("Ciclo Total", f"{df_t['Demora Total'].mean():.1f} d")
+        
+        # NOTAS DE AYUDA (Tooltips) agregadas aquí:
+        mt1.metric("Fact. a Gestor", f"{df_t['Facturación a Gestor'].mean():.1f} d",
+                   help="Mide días desde Facturación hasta que el Gestor retira la documentación. Objetivo: Evaluar rapidez administrativa interna.")
+        mt2.metric("Gestión Gestor", f"{df_t['Gestoría (Retiro a Papeles)'].mean():.1f} d",
+                   help="Mide días desde el retiro del gestor hasta que los papeles están disponibles. Objetivo: Controlar tiempos de patentamiento y trámites.")
+        mt3.metric("Papeles a Entrega", f"{df_t['Entrega (Papeles a Entrega)'].mean():.1f} d",
+                   help="Mide días desde disponibilidad de papeles hasta entrega confirmada. Objetivo: Evaluar eficiencia en coordinación de turnos y alistamiento.")
+        mt4.metric("Ciclo Total", f"{df_t['Demora Total'].mean():.1f} d",
+                   help="Mide la demora total desde la Facturación hasta la Entrega final. Es la percepción de espera total del cliente.")
 
         st.subheader("📋 Detalle de Unidades (Facturadas en el periodo)")
         cols_t_view = ["Vendedor", "Cliente", "Chasis", "Facturación a Gestor", "Gestoría (Retiro a Papeles)", "Entrega (Papeles a Entrega)", "Demora Total", "Estado"]
@@ -184,7 +190,6 @@ try:
     # ---------------------------------------------------------
     with tab_graficos:
         st.header("Análisis Visual de Gestión")
-        # Usamos fal_v definido en la Pestaña 1
         if 'fal_v' in locals() and not fal_v.empty:
             g1, g2 = st.columns(2)
             with g1:
