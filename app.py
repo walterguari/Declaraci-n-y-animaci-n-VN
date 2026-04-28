@@ -14,12 +14,10 @@ url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sD
 
 # Columnas para la pestaña de Hand Over
 COLUMNAS_HO = [
-    "Vendedor", "Cliente", "Teléfono", "E-mail", 
-    "Chasis", "Marca", "Fecha de Patentamiento", "Patente", 
+    "Marca", "Vendedor", "Cliente", "Teléfono", 
+    "Chasis", "Fecha de Patentamiento", "Patente", 
     "Estado Administrativo", "Observacion de la Documentación", 
-    "Estado", "Fecha de confirmacion de entrega", "Encuesta Temprana", 
-    "Comentario Enc. Temp.", "EI - Reco", "Comentario de la Encuesta interna", 
-    "EI - CSI", "ESTADO INTERNO", "Fecha de Hand over"
+    "Estado", "Fecha de confirmacion de entrega", "ESTADO INTERNO", "Fecha de Hand over"
 ]
 
 try:
@@ -28,20 +26,23 @@ try:
     df_base = df_raw.dropna(how='all')
     df_base.columns = [str(c).strip() for c in df_base.columns]
 
-    # --- SIDEBAR (FILTRO GLOBAL) ---
+    # --- SIDEBAR (FILTROS GLOBAL ACTUALIZADO) ---
     st.sidebar.header("Filtros Globales")
+    
+    # Filtro de Marca (Nuevo pedido)
+    marcas = sorted(df_base["Marca"].dropna().unique()) if "Marca" in df_base.columns else []
+    filtro_marca = st.sidebar.multiselect("Seleccionar Marca", options=marcas)
+
+    # Filtro de Canal de Venta
     canales = sorted(df_base["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df_base.columns else []
     filtro_canal = st.sidebar.multiselect("Canal de Venta", options=canales)
-    
-    vendedores = sorted(df_base["Vendedor"].dropna().unique()) if "Vendedor" in df_base.columns else []
-    filtro_vendedor = st.sidebar.multiselect("Vendedor", options=vendedores)
 
     # --- APLICACIÓN DEL FILTRO GLOBAL ---
     df = df_base.copy()
+    if filtro_marca:
+        df = df[df["Marca"].isin(filtro_marca)]
     if filtro_canal:
         df = df[df["Canal de Venta"].isin(filtro_canal)]
-    if filtro_vendedor:
-        df = df[df["Vendedor"].isin(filtro_vendedor)]
 
     # --- PROCESAMIENTO GLOBAL DE FECHAS ---
     cols_a_fecha = [
@@ -164,7 +165,7 @@ try:
             f_final = np.datetime64(end, 'D') if pd.notna(end) else hoy_np
             if f_inicio > f_final: return 0
             dias = int(np.busday_count(f_inicio, f_final))
-            return dias if dias < 365 else None # Filtro de seguridad (ignora errores > 1 año)
+            return dias if dias < 365 else None # Seguridad para errores de carga
 
         df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
         df_t["Gestoría"] = df_t.apply(lambda r: calc_working_days(r["Fecha que el Gestor Retira Doc"], r["Fecha Disponibilidad Papeles"]), axis=1)
@@ -195,24 +196,33 @@ try:
                    help="Mide: Fecha Conf. Entrega - Fecha Facturación (Ciclo Completo).")
 
         st.subheader(f"📋 Detalle de Unidades ({tipo_g} en el periodo)")
-        cols_t_view = ["Vendedor", "Cliente", "Chasis", "Facturación a Gestor", "Gestoría", "Papeles a Entrega", "Demora Total", "Fecha de confirmacion de entrega", "Estado"]
-        st.dataframe(df_t[cols_t_view], use_container_width=True, hide_index=True)
+        
+        # CONFIGURACIÓN DE LA TABLA CON TOOLTIPS DE FECHAS
+        st.dataframe(
+            df_t[["Marca", "Vendedor", "Cliente", "Chasis", "Facturación a Gestor", "Gestoría", "Papeles a Entrega", "Demora Total", "Fecha de confirmacion de entrega", "Estado"]], 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "Facturación a Gestor": st.column_config.NumberColumn(help="Cálculo: Fecha que el Gestor Retira Doc - Fecha de Facturación"),
+                "Gestoría": st.column_config.NumberColumn(help="Cálculo: Fecha Disponibilidad Papeles - Fecha que el Gestor Retira Doc"),
+                "Papeles a Entrega": st.column_config.NumberColumn(help="Cálculo: Fecha de confirmacion de entrega - Fecha Disponibilidad Papeles"),
+                "Demora Total": st.column_config.NumberColumn(help="Cálculo: Fecha de confirmacion de entrega - Fecha de Facturación")
+            }
+        )
 
     # ---------------------------------------------------------
     # PESTAÑA 3: ANÁLISIS VISUAL
     # ---------------------------------------------------------
     with tab_graficos:
         st.header("Análisis Visual de Gestión")
-        if 'fal_v' in locals() and not fal_v.empty:
+        if not df.empty:
             g1, g2 = st.columns(2)
             with g1:
-                st.write("### Pendientes de HO por Vendedor")
-                v_counts = fal_v["Vendedor"].value_counts().reset_index()
-                v_counts.columns = ["Vendedor", "Cant"]
-                st.plotly_chart(px.bar(v_counts, x="Vendedor", y="Cant", color="Cant", template="plotly_white"), use_container_width=True)
+                st.write("### Unidades por Marca")
+                st.plotly_chart(px.bar(df["Marca"].value_counts().reset_index(), x="Marca", y="count", color="Marca", template="plotly_white"), use_container_width=True)
             with g2:
                 st.write("### Estado Interno de los Pendientes")
-                st.plotly_chart(px.pie(fal_v, names="ESTADO INTERNO", hole=0.4), use_container_width=True)
+                st.plotly_chart(px.pie(df[df['TIENE_HO']==False], names="ESTADO INTERNO", hole=0.4), use_container_width=True)
 
 except Exception as e:
     st.error(f"Error al cargar el portal: {e}")
