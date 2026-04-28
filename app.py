@@ -26,14 +26,12 @@ try:
     df_base = df_raw.dropna(how='all')
     df_base.columns = [str(c).strip() for c in df_base.columns]
 
-    # --- SIDEBAR (FILTROS GLOBAL ACTUALIZADO) ---
+    # --- SIDEBAR (FILTRO GLOBAL - MARCA AGREGADA, VENDEDOR ELIMINADO) ---
     st.sidebar.header("Filtros Globales")
     
-    # Filtro de Marca (Nuevo pedido)
     marcas = sorted(df_base["Marca"].dropna().unique()) if "Marca" in df_base.columns else []
     filtro_marca = st.sidebar.multiselect("Seleccionar Marca", options=marcas)
 
-    # Filtro de Canal de Venta
     canales = sorted(df_base["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df_base.columns else []
     filtro_canal = st.sidebar.multiselect("Canal de Venta", options=canales)
 
@@ -165,14 +163,13 @@ try:
             f_final = np.datetime64(end, 'D') if pd.notna(end) else hoy_np
             if f_inicio > f_final: return 0
             dias = int(np.busday_count(f_inicio, f_final))
-            return dias if dias < 365 else None # Seguridad para errores de carga
+            return dias if dias < 365 else None 
 
         df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
         df_t["Gestoría"] = df_t.apply(lambda r: calc_working_days(r["Fecha que el Gestor Retira Doc"], r["Fecha Disponibilidad Papeles"]), axis=1)
         df_t["Papeles a Entrega"] = df_t.apply(lambda r: calc_working_days(r["Fecha Disponibilidad Papeles"], r["Fecha de confirmacion de entrega"]), axis=1)
         df_t["Demora Total"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha de confirmacion de entrega"]), axis=1)
 
-        # --- MÉTRICAS CON OBJETIVOS Y AYUDA DETALLADA ---
         st.divider()
         st.subheader(f"⏳ Promedios Días Hábiles - {mes_click if mes_click else 'Anual'}")
         mt1, mt2, mt3, mt4 = st.columns(4)
@@ -197,16 +194,17 @@ try:
 
         st.subheader(f"📋 Detalle de Unidades ({tipo_g} en el periodo)")
         
-        # CONFIGURACIÓN DE LA TABLA CON TOOLTIPS DE FECHAS
+        # --- CONFIGURACIÓN DE LA TABLA CON TOOLTIPS DE FECHAS ---
         st.dataframe(
             df_t[["Marca", "Vendedor", "Cliente", "Chasis", "Facturación a Gestor", "Gestoría", "Papeles a Entrega", "Demora Total", "Fecha de confirmacion de entrega", "Estado"]], 
             use_container_width=True, 
             hide_index=True,
             column_config={
-                "Facturación a Gestor": st.column_config.NumberColumn(help="Cálculo: Fecha que el Gestor Retira Doc - Fecha de Facturación"),
-                "Gestoría": st.column_config.NumberColumn(help="Cálculo: Fecha Disponibilidad Papeles - Fecha que el Gestor Retira Doc"),
-                "Papeles a Entrega": st.column_config.NumberColumn(help="Cálculo: Fecha de confirmacion de entrega - Fecha Disponibilidad Papeles"),
-                "Demora Total": st.column_config.NumberColumn(help="Cálculo: Fecha de confirmacion de entrega - Fecha de Facturación")
+                "Facturación a Gestor": st.column_config.NumberColumn(help="Cálculo: [Fecha que el Gestor Retira Doc] - [Fecha de Facturación]"),
+                "Gestoría": st.column_config.NumberColumn(help="Cálculo: [Fecha Disponibilidad Papeles] - [Fecha que el Gestor Retira Doc]"),
+                "Papeles a Entrega": st.column_config.NumberColumn(help="Cálculo: [Fecha de confirmacion de entrega] - [Fecha Disponibilidad Papeles]"),
+                "Demora Total": st.column_config.NumberColumn(help="Cálculo: [Fecha de confirmacion de entrega] - [Fecha de Facturación]"),
+                "Fecha de confirmacion de entrega": st.column_config.DateColumn("Fecha Entrega")
             }
         )
 
