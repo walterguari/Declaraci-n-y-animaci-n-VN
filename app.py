@@ -56,6 +56,7 @@ try:
     with tab_ho:
         st.header("Gestión de Hand Over y Garantías")
         
+        # Filtros en Cascada
         st.write("### 📅 1. Seleccioná el Mes con Pendientes")
         meses_pendientes = df[~df['TIENE_HO']].dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
         opciones_meses = meses_pendientes["Mes_Display"].unique().tolist()
@@ -127,6 +128,7 @@ try:
         with g_col2:
             tipo_g = st.pills("Evolución Mensual de:", ["Facturación", "Patentamiento"], default="Facturación", key="pill_tipo_t")
 
+        # Ajuste de filtro para que la tabla sea coherente con lo seleccionado
         col_f = "Fecha de Facturacion" if tipo_g == "Facturación" else "Fecha de Patentamiento"
         df_g = df[df[col_f].dt.year == año_sel].copy()
         
@@ -145,10 +147,11 @@ try:
             
             if evento_clic and "selection" in evento_clic and evento_clic["selection"]["points"]:
                 mes_click = evento_clic["selection"]["points"][0]["x"]
-                st.success(f"🔎 Auditando: **{mes_click} {año_sel}**")
+                st.success(f"🔎 Auditando {tipo_g}: **{mes_click} {año_sel}**")
 
-        # --- LÓGICA DE DÍAS HÁBILES (LABORABLES) ---
-        df_t = df_g.copy() if mes_click else df.copy()
+        # --- LÓGICA DE DÍAS HÁBILES ---
+        # Ahora df_t contiene a todos los del año o mes seleccionado por el botón de Facturación/Patentamiento
+        df_t = df_g.copy() if mes_click else df_g.copy() # Cambiado de df.copy a df_g para respetar el filtro de volumen inicial
         if mes_click:
             df_t = df_t[df_t["Mes_Nom"] == mes_click]
 
@@ -156,16 +159,14 @@ try:
 
         def calc_working_days(start, end):
             if pd.isna(start): return None
-            # Convertimos a numpy datetime64 para busday_count
             f_inicio = np.datetime64(start, 'D')
             f_final = np.datetime64(end, 'D') if pd.notna(end) else hoy_np
-            
             if f_inicio > f_final: return 0
             return int(np.busday_count(f_inicio, f_final))
 
         df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
-        df_t["Gestoría (Retiro a Papeles)"] = df_t.apply(lambda r: calc_working_days(r["Fecha que el Gestor Retira Doc"], r["Fecha Disponibilidad Papeles"]), axis=1)
-        df_t["Entrega (Papeles a Entrega)"] = df_t.apply(lambda r: calc_working_days(r["Fecha Disponibilidad Papeles"], r["Fecha de confirmacion de entrega"]), axis=1)
+        df_t["Gestoría"] = df_t.apply(lambda r: calc_working_days(r["Fecha que el Gestor Retira Doc"], r["Fecha Disponibilidad Papeles"]), axis=1)
+        df_t["Papeles a Entrega"] = df_t.apply(lambda r: calc_working_days(r["Fecha Disponibilidad Papeles"], r["Fecha de confirmacion de entrega"]), axis=1)
         df_t["Demora Total"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha de confirmacion de entrega"]), axis=1)
 
         # --- MÉTRICAS CON OBJETIVOS Y AYUDA ---
@@ -173,31 +174,30 @@ try:
         st.subheader(f"⏳ Promedios Días Hábiles - {mes_click if mes_click else 'Anual'}")
         mt1, mt2, mt3, mt4 = st.columns(4)
         
-        # Definición de Objetivos
         OBJ1, OBJ2, OBJ3 = 2, 3, 3
-        p1, p2, p3, p4 = df_t["Facturación a Gestor"].mean(), df_t["Gestoría (Retiro a Papeles)"].mean(), df_t["Entrega (Papeles a Entrega)"].mean(), df_t["Demora Total"].mean()
+        p1, p2, p3, p4 = df_t["Facturación a Gestor"].mean(), df_t["Gestoría"].mean(), df_t["Papeles a Entrega"].mean(), df_t["Demora Total"].mean()
 
-        mt1.metric("Fact. a Gestor", f"{p1:.1f} d", 
+        mt1.metric("Fact. a Gestor", f"{p1:.1f} d" if pd.notna(p1) else "0.0 d", 
                    delta=f"{p1-OBJ1:.1f} vs Obj" if pd.notna(p1) else None, delta_color="inverse",
-                   help=f"Objetivo: {OBJ1} días hábiles. Mide rapidez administrativa interna.")
+                   help=f"Objetivo: {OBJ1} días hábiles.")
         
-        mt2.metric("Gestión Gestor", f"{p2:.1f} d", 
+        mt2.metric("Gestión Gestor", f"{p2:.1f} d" if pd.notna(p2) else "0.0 d", 
                    delta=f"{p2-OBJ2:.1f} vs Obj" if pd.notna(p2) else None, delta_color="inverse",
-                   help=f"Objetivo: {OBJ2} días hábiles. Controla tiempos de patentamiento y gestoría.")
+                   help=f"Objetivo: {OBJ2} días hábiles.")
         
-        mt3.metric("Papeles a Entrega", f"{p3:.1f} d", 
+        mt3.metric("Papeles a Entrega", f"{p3:.1f} d" if pd.notna(p3) else "0.0 d", 
                    delta=f"{p3-OBJ3:.1f} vs Obj" if pd.notna(p3) else None, delta_color="inverse",
-                   help=f"Objetivo: {OBJ3} días hábiles. Evalúa coordinación de turnos y alistamiento.")
+                   help=f"Objetivo: {OBJ3} días hábiles.")
         
-        mt4.metric("Ciclo Total", f"{p4:.1f} d", 
-                   help="Mide días hábiles totales desde Facturación a Entrega. Es la percepción del cliente.")
+        mt4.metric("Ciclo Total", f"{p4:.1f} d" if pd.notna(p4) else "0.0 d", 
+                   help="Suma total de días hábiles desde Facturación.")
 
-        st.subheader("📋 Detalle de Unidades (Días Laborales)")
-        cols_t_view = ["Vendedor", "Cliente", "Chasis", "Facturación a Gestor", "Gestoría (Retiro a Papeles)", "Entrega (Papeles a Entrega)", "Demora Total", "Estado"]
+        st.subheader(f"📋 Detalle de Unidades ({tipo_g} en el periodo)")
+        cols_t_view = ["Vendedor", "Cliente", "Chasis", "Facturación a Gestor", "Gestoría", "Papeles a Entrega", "Demora Total", "Estado"]
         st.dataframe(df_t[cols_t_view], use_container_width=True, hide_index=True)
 
     # ---------------------------------------------------------
-    # PESTAÑA 3: ANÁLISIS VISUAL (Mantenida)
+    # PESTAÑA 3: ANÁLISIS VISUAL
     # ---------------------------------------------------------
     with tab_graficos:
         st.header("Análisis Visual de Gestión")
@@ -205,11 +205,11 @@ try:
             g1, g2 = st.columns(2)
             with g1:
                 st.write("### Pendientes de HO por Vendedor")
-                v_c = fal_v["Vendedor"].value_counts().reset_index()
-                v_c.columns = ["Vendedor", "Cant"]
-                st.plotly_chart(px.bar(v_c, x="Vendedor", y="Cant", color="Cant", template="plotly_white"), use_container_width=True)
+                v_counts = fal_v["Vendedor"].value_counts().reset_index()
+                v_counts.columns = ["Vendedor", "Cant"]
+                st.plotly_chart(px.bar(v_counts, x="Vendedor", y="Cant", color="Cant", template="plotly_white"), use_container_width=True)
             with g2:
-                st.write("### Estado Interno de Pendientes")
+                st.write("### Estado Interno de los Pendientes")
                 st.plotly_chart(px.pie(fal_v, names="ESTADO INTERNO", hole=0.4), use_container_width=True)
 
 except Exception as e:
