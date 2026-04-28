@@ -27,8 +27,11 @@ try:
     df.columns = [str(c).strip() for c in df.columns]
 
     # --- CREACIÓN DE PESTAÑAS ---
-    # Podés agregar más nombres a la lista para crear más pestañas en el futuro
-    tab_ho, tab_graficos = st.tabs(["🛡️ Gestión de Hand Over y Garantías", "📈 Análisis Visual"])
+    tab_ho, tab_tiempos, tab_graficos = st.tabs([
+        "🛡️ Gestión de Hand Over y Garantías", 
+        "⏱️ Análisis de Tiempos", 
+        "📈 Análisis Visual"
+    ])
 
     # ---------------------------------------------------------
     # PESTAÑA 1: GESTIÓN DE HAND OVER
@@ -103,21 +106,65 @@ try:
         st.dataframe(df_final[cols_ok], use_container_width=True, hide_index=True)
 
     # ---------------------------------------------------------
-    # PESTAÑA 2: ANÁLISIS VISUAL (NUEVA)
+    # PESTAÑA 2: ANÁLISIS DE TIEMPOS
+    # ---------------------------------------------------------
+    with tab_tiempos:
+        st.header("⏱️ Análisis de Tiempos (Lead Times)")
+        
+        # Columnas necesarias para esta pestaña
+        cols_fechas = [
+            "Fecha de Facturacion", "Fecha de Pedido de Preparacion", 
+            "Fecha que el Gestor Retira Doc", "Fecha de Patentamiento", 
+            "Fecha Disponibilidad Papeles", "Fecha Arribo", 
+            "Fecha de confirmacion de entrega"
+        ]
+        
+        df_t = df.copy()
+        for col in cols_fechas:
+            if col in df_t.columns:
+                df_t[col] = pd.to_datetime(df_t[col], errors='coerce')
+
+        # Cálculos de días
+        df_t["Días Logística (Pedido-Arribo)"] = (df_t["Fecha Arribo"] - df_t["Fecha de Pedido de Preparacion"]).dt.days
+        df_t["Días Patentamiento"] = (df_t["Fecha de Patentamiento"] - df_t["Fecha que el Gestor Retira Doc"]).dt.days
+        df_t["Días Disponibilidad Papeles"] = (df_t["Fecha Disponibilidad Papeles"] - df_t["Fecha de Patentamiento"]).dt.days
+        df_t["Días para Entrega (Post-Arribo)"] = (df_t["Fecha de confirmacion de entrega"] - df_t["Fecha Arribo"]).dt.days
+        df_t["Ciclo Total (Fact-Entrega)"] = (df_t["Fecha de confirmacion de entrega"] - df_t["Fecha de Facturacion"]).dt.days
+
+        # Métricas de tiempo promedio
+        mt1, mt2, mt3, mt4 = st.columns(4)
+        mt1.metric("Prom. Logística", f"{df_t['Días Logística (Pedido-Arribo)'].mean():.1f} d")
+        mt2.metric("Prom. Patentamiento", f"{df_t['Días Patentamiento'].mean():.1f} d")
+        mt3.metric("Prom. Entrega Real", f"{df_t['Días para Entrega (Post-Arribo)'].mean():.1f} d")
+        mt4.metric("Ciclo Total Prom.", f"{df_t['Ciclo Total (Fact-Entrega)'].mean():.1f} d")
+
+        st.divider()
+        
+        # Gráfico comparativo
+        st.write("### Ciclo Total de Entrega por Vendedor (Días)")
+        if "Vendedor" in df_t.columns:
+            v_time = df_t.groupby("Vendedor")["Ciclo Total (Fact-Entrega)"].mean().sort_values().reset_index()
+            fig_t = px.bar(v_time, x="Vendedor", y="Ciclo Total (Fact-Entrega)", color="Ciclo Total (Fact-Entrega)", 
+                           color_continuous_scale="RdYlGn_r", template="plotly_white")
+            st.plotly_chart(fig_t, use_container_width=True)
+
+        st.subheader("📋 Detalle de Tiempos por Unidad")
+        cols_t_view = ["Vendedor", "Cliente", "Chasis", "Días Logística (Pedido-Arribo)", "Días Patentamiento", "Días para Entrega (Post-Arribo)", "Ciclo Total (Fact-Entrega)"]
+        st.dataframe(df_t[cols_t_view].dropna(subset=["Ciclo Total (Fact-Entrega)"]), use_container_width=True, hide_index=True)
+
+    # ---------------------------------------------------------
+    # PESTAÑA 3: ANÁLISIS VISUAL
     # ---------------------------------------------------------
     with tab_graficos:
         st.header("Análisis Visual de Gestión")
-        
         if not fal_v.empty:
             g1, g2 = st.columns(2)
-            
             with g1:
                 st.write("### Pendientes por Vendedor")
                 v_counts = fal_v["Vendedor"].value_counts().reset_index()
                 v_counts.columns = ["Vendedor", "Cantidad"]
                 fig_bar = px.bar(v_counts, x="Vendedor", y="Cantidad", color="Cantidad", template="plotly_white")
                 st.plotly_chart(fig_bar, use_container_width=True)
-            
             with g2:
                 st.write("### Distribución de Estados Internos")
                 fig_pie = px.pie(fal_v, names="ESTADO INTERNO", hole=0.4)
