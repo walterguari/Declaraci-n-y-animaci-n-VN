@@ -85,14 +85,14 @@ try:
         est_disponibles = sorted([e for e in df_temp_ei[col_ei].unique() if e.upper() not in ["NAN", "", "NONE"]])
         ei_sel = st.pills("Categorías con pendientes:", ["Todos"] + est_disponibles, default="Todos", key="p_ei")
 
-        df_f = df.copy()
-        if mes_sel != "Todos": df_f = df_f[df_f["Mes_Display"] == mes_sel]
-        if ei_sel != "Todos": df_f = df_f[df_f[col_ei] == ei_sel]
+        df_f_ho = df.copy()
+        if mes_sel != "Todos": df_f_ho = df_f_ho[df_f_ho["Mes_Display"] == mes_sel]
+        if ei_sel != "Todos": df_f_ho = df_f_ho[df_f_ho[col_ei] == ei_sel]
 
         st.divider()
         c1, c2, c3, c4 = st.columns(4)
-        pat_v = df_f[df_f["Fecha de Patentamiento"].notna()]
-        ent_v = df_f[df_f["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
+        pat_v = df_f_ho[df_f_ho["Fecha de Patentamiento"].notna()]
+        ent_v = df_f_ho[df_f_ho["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
         fal_v = pat_v[~pat_v['TIENE_HO']]
         
         c1.metric("Patentados", len(pat_v))
@@ -101,9 +101,8 @@ try:
         eficacia = (len(pat_v[pat_v['TIENE_HO']]) / len(pat_v) * 100) if len(pat_v) > 0 else 0
         c4.metric("% Eficacia", f"{eficacia:.1f}%")
 
-        st.subheader(f"📋 Listado: {mes_sel} | {ei_sel}")
         modo = st.radio("Filtro tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True)
-        df_final = fal_v if modo == "Solo Pendientes ⚠️" else df_f
+        df_final = fal_v if modo == "Solo Pendientes ⚠️" else df_f_ho
         
         busq = st.text_input("🔍 Búsqueda rápida:")
         if busq:
@@ -114,26 +113,23 @@ try:
         st.dataframe(df_final[cols_ok], use_container_width=True, hide_index=True)
 
     # ---------------------------------------------------------
-    # PESTAÑA 2: ANÁLISIS DE TIEMPOS Y VOLÚMENES (FILTRO GLOBAL + HÁBILES)
+    # PESTAÑA 2: ANÁLISIS DE TIEMPOS Y VOLÚMENES
     # ---------------------------------------------------------
     with tab_tiempos:
-        st.header("⏱️ Análisis de Tiempos y Volúmenes Operativos")
+        st.header("⏱️ Análisis de Tiempos Operativos (Días Hábiles)")
         
         v1, v2 = st.columns(2)
         v1.metric("Cantidad de Facturaciones", f"{df['Fecha de Facturacion'].notna().sum()} Unid.")
         v2.metric("Cantidad de Patentamientos", f"{df['Fecha de Patentamiento'].notna().sum()} Unid.")
 
         st.divider()
-        st.subheader("📊 Evolución Mensual (Gráfico Interactivo)")
+        st.subheader("📊 Evolución Mensual e Interactividad")
         st.info("💡 Hacé clic en una barra para filtrar las demoras y la tabla detallada.")
         
         g_col1, g_col2 = st.columns(2)
-        with g_col1:
-            años = sorted(list(set(df["Fecha de Facturacion"].dt.year.dropna().unique()) | 
-                               set(df["Fecha de Patentamiento"].dt.year.dropna().unique())), reverse=True)
-            año_sel = st.selectbox("Seleccionar Año:", años if años else [2026], key="sel_año_t")
-        with g_col2:
-            tipo_g = st.pills("Evolución Mensual de:", ["Facturación", "Patentamiento"], default="Facturación", key="pill_tipo_t")
+        años = sorted(list(set(df["Fecha de Facturacion"].dt.year.dropna().unique()) | set(df["Fecha de Patentamiento"].dt.year.dropna().unique())), reverse=True)
+        año_sel = g_col1.selectbox("Año:", años if años else [2026], key="sel_año_t")
+        tipo_g = g_col2.pills("Evolución Mensual de:", ["Facturación", "Patentamiento"], default="Facturación", key="pill_tipo_t")
 
         col_f = "Fecha de Facturacion" if tipo_g == "Facturación" else "Fecha de Patentamiento"
         df_g = df[df[col_f].dt.year == año_sel].copy()
@@ -167,13 +163,15 @@ try:
             f_inicio = np.datetime64(start, 'D')
             f_final = np.datetime64(end, 'D') if pd.notna(end) else hoy_np
             if f_inicio > f_final: return 0
-            return int(np.busday_count(f_inicio, f_final))
+            dias = int(np.busday_count(f_inicio, f_final))
+            return dias if dias < 365 else None # Filtro de seguridad (ignora errores > 1 año)
 
         df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
         df_t["Gestoría"] = df_t.apply(lambda r: calc_working_days(r["Fecha que el Gestor Retira Doc"], r["Fecha Disponibilidad Papeles"]), axis=1)
         df_t["Papeles a Entrega"] = df_t.apply(lambda r: calc_working_days(r["Fecha Disponibilidad Papeles"], r["Fecha de confirmacion de entrega"]), axis=1)
         df_t["Demora Total"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha de confirmacion de entrega"]), axis=1)
 
+        # --- MÉTRICAS CON OBJETIVOS Y AYUDA DETALLADA ---
         st.divider()
         st.subheader(f"⏳ Promedios Días Hábiles - {mes_click if mes_click else 'Anual'}")
         mt1, mt2, mt3, mt4 = st.columns(4)
@@ -183,21 +181,20 @@ try:
 
         mt1.metric("Fact. a Gestor", f"{p1:.1f} d" if pd.notna(p1) else "0.0 d", 
                    delta=f"{p1-OBJ1:.1f} vs Obj" if pd.notna(p1) else None, delta_color="inverse",
-                   help=f"Objetivo: {OBJ1} días hábiles.")
+                   help=f"Objetivo: {OBJ1} días. Mide: Fecha Retiro Gestor - Fecha Facturación.")
         
         mt2.metric("Gestión Gestor", f"{p2:.1f} d" if pd.notna(p2) else "0.0 d", 
                    delta=f"{p2-OBJ2:.1f} vs Obj" if pd.notna(p2) else None, delta_color="inverse",
-                   help=f"Objetivo: {OBJ2} días hábiles.")
+                   help=f"Objetivo: {OBJ2} días. Mide: Fecha Disp. Papeles - Fecha Retiro Gestor.")
         
         mt3.metric("Papeles a Entrega", f"{p3:.1f} d" if pd.notna(p3) else "0.0 d", 
                    delta=f"{p3-OBJ3:.1f} vs Obj" if pd.notna(p3) else None, delta_color="inverse",
-                   help=f"Objetivo: {OBJ3} días hábiles.")
+                   help=f"Objetivo: {OBJ3} días. Mide: Fecha Conf. Entrega - Fecha Disp. Papeles.")
         
         mt4.metric("Ciclo Total", f"{p4:.1f} d" if pd.notna(p4) else "0.0 d", 
-                   help="Suma total de días hábiles desde Facturación.")
+                   help="Mide: Fecha Conf. Entrega - Fecha Facturación (Ciclo Completo).")
 
         st.subheader(f"📋 Detalle de Unidades ({tipo_g} en el periodo)")
-        # --- COLUMNA AGREGADA: Fecha de confirmacion de entrega ---
         cols_t_view = ["Vendedor", "Cliente", "Chasis", "Facturación a Gestor", "Gestoría", "Papeles a Entrega", "Demora Total", "Fecha de confirmacion de entrega", "Estado"]
         st.dataframe(df_t[cols_t_view], use_container_width=True, hide_index=True)
 
@@ -206,7 +203,6 @@ try:
     # ---------------------------------------------------------
     with tab_graficos:
         st.header("Análisis Visual de Gestión")
-        # fal_v ya viene filtrado globalmente
         if 'fal_v' in locals() and not fal_v.empty:
             g1, g2 = st.columns(2)
             with g1:
@@ -217,8 +213,6 @@ try:
             with g2:
                 st.write("### Estado Interno de los Pendientes")
                 st.plotly_chart(px.pie(fal_v, names="ESTADO INTERNO", hole=0.4), use_container_width=True)
-        else:
-            st.success("Sin pendientes de Hand Over para mostrar gráficos.")
 
 except Exception as e:
     st.error(f"Error al cargar el portal: {e}")
