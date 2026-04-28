@@ -11,7 +11,6 @@ st.title("🛡️ Gestión de Hand Over y Garantías")
 conn = st.connection("gsheets", type=GSheetsConnection)
 url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
 
-# Listado de columnas ajustado
 COLUMNAS_MOSTRAR = [
     "Vendedor", "Cliente", "Teléfono", "E-mail", 
     "Chasis", "Marca", "Fecha de Patentamiento", "Patente", 
@@ -27,17 +26,18 @@ try:
     df = df_raw.dropna(how='all')
     df.columns = [str(c).strip() for c in df.columns]
 
-    # --- PROCESAMIENTO DE FECHAS Y LOGICA ---
+    # --- PROCESAMIENTO INICIAL ---
     df["Fecha de Patentamiento"] = pd.to_datetime(df["Fecha de Patentamiento"], errors='coerce')
     df["Fecha de Hand over"] = pd.to_datetime(df["Fecha de Hand over"], errors='coerce')
-    
     df['TIENE_HO'] = df["Fecha de Hand over"].notna()
     
-    # Unidades con Patentamiento (Para los botones de meses)
-    df_con_patente = df.dropna(subset=["Fecha de Patentamiento"]).copy()
-    df_con_patente["Mes_Display"] = df_con_patente["Fecha de Patentamiento"].dt.strftime('%b %Y')
+    # Columna de visualización de mes
+    df["Mes_Display"] = df["Fecha de Patentamiento"].dt.strftime('%b %Y')
+    # Limpieza de Estado Interno
+    col_ei = "ESTADO INTERNO"
+    df[col_ei] = df[col_ei].fillna("SIN ESTADO").astype(str).str.strip()
 
-    # --- SIDEBAR (FILTROS) ---
+    # --- SIDEBAR (FILTROS FIJOS) ---
     st.sidebar.header("Filtros de Categoría")
     canales = sorted(df["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df.columns else []
     filtro_canal = st.sidebar.multiselect("Canal de Venta", options=canales)
@@ -45,70 +45,65 @@ try:
     vendedores = sorted(df["Vendedor"].dropna().unique()) if "Vendedor" in df.columns else []
     filtro_vendedor = st.sidebar.multiselect("Vendedor", options=vendedores)
 
-    # --- BOTONES SUPERIORES: MESES ---
-    st.write("### 📅 Meses con Hand Over Pendientes")
-    meses_pendientes = df_con_patente[~df_con_patente['TIENE_HO']].sort_values("Fecha de Patentamiento")
+    # --- PASO 1: FILTRO DE MESES (LOS QUE TIENEN PENDIENTES) ---
+    st.write("### 📅 1. Seleccioná el Mes con Pendientes")
+    meses_pendientes = df[~df['TIENE_HO']].dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
     opciones_meses = meses_pendientes["Mes_Display"].unique().tolist()
 
     if opciones_meses:
-        mes_sel = st.pills("Seleccioná un mes para auditar:", ["Todos"] + opciones_meses, default="Todos")
+        mes_sel = st.pills("Meses detectados:", ["Todos"] + opciones_meses, default="Todos", key="pills_meses")
     else:
-        st.success("✅ ¡Todo al día! No hay pendientes con fecha de patentamiento.")
+        st.success("✅ No hay meses con Hand Over pendientes.")
         mes_sel = "Todos"
 
-    # --- BOTONES SUPERIORES: ESTADO INTERNO ---
-    st.write("### 🏷️ Filtrar por Estado Interno")
-    col_ei = "ESTADO INTERNO"
-    if col_ei in df.columns:
-        # Limpieza segura: convertimos a texto, quitamos nulos y espacios
-        df[col_ei] = df[col_ei].fillna("SIN ESTADO").astype(str).str.strip()
-        # Filtramos para que no aparezcan 'nan' ni vacíos en los botones
-        estados_lista = sorted([e for e in df[col_ei].unique() if e.upper() not in ["NAN", "", "NONE"]])
-        ei_sel = st.pills("Seleccioná una categoría interna:", ["Todos"] + estados_lista, default="Todos")
+    # --- PASO 2: FILTRO DINÁMICO DE ESTADO INTERNO (INTERACTIVO) ---
+    st.write("### 🏷️ 2. Filtrar por Estado Interno (Solo pendientes)")
+    
+    # Filtramos el dataframe temporalmente para ver qué Estados Internos hay según el mes elegido
+    df_temp_ei = df[~df['TIENE_HO']].copy() # Solo lo que no tiene HO
+    if mes_sel != "Todos":
+        df_temp_ei = df_temp_ei[df_temp_ei["Mes_Display"] == mes_sel]
+    
+    # Obtenemos la lista de estados que REALMENTE existen en esa selección
+    estados_disponibles = sorted([e for e in df_temp_ei[col_ei].unique() if e.upper() not in ["NAN", "", "NONE"]])
+
+    if estados_disponibles:
+        ei_sel = st.pills("Categorías con pendientes en este periodo:", ["Todos"] + estados_disponibles, default="Todos", key="pills_ei")
     else:
+        st.info("No hay estados internos específicos para esta selección.")
         ei_sel = "Todos"
 
-    # --- FILTRADO DE DATOS FINAL ---
+    # --- FILTRADO FINAL DE LA TABLA Y MÉTRICAS ---
     df_f = df.copy()
-    
     if mes_sel != "Todos":
-        df_f = df_f[df_f["Fecha de Patentamiento"].dt.strftime('%b %Y') == mes_sel]
-    
+        df_f = df_f[df_f["Mes_Display"] == mes_sel]
     if ei_sel != "Todos":
         df_f = df_f[df_f[col_ei] == ei_sel]
-        
     if filtro_canal:
         df_f = df_f[df_f["Canal de Venta"].isin(filtro_canal)]
-        
     if filtro_vendedor:
         df_f = df_f[df_f["Vendedor"].isin(filtro_vendedor)]
 
     # --- MÉTRICAS ---
     st.divider()
     c1, c2, c3, c4 = st.columns(4)
-    patentados_vista = df_f[df_f["Fecha de Patentamiento"].notna()]
-    entregados_vista = df_f[df_f["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
-    faltan_ho_vista = patentados_vista[~patentados_vista['TIENE_HO']]
+    patentados_v = df_f[df_f["Fecha de Patentamiento"].notna()]
+    entregados_v = df_f[df_f["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
+    faltan_ho_v = patentados_v[~patentados_v['TIENE_HO']]
     
-    with c1:
-        st.metric("Patentados", len(patentados_vista))
-    with c2:
-        st.metric("Entregados", len(entregados_vista))
-    with c3:
-        st.metric("Faltan Hand Over", len(faltan_ho_vista), 
-                  delta="Acción requerida" if len(faltan_ho_vista) > 0 else None, 
-                  delta_color="inverse")
-    with c4:
-        eficacia = (len(patentados_vista[patentados_vista['TIENE_HO']]) / len(patentados_vista) * 100) if len(patentados_vista) > 0 else 0
-        st.metric("% Eficacia", f"{eficacia:.1f}%")
+    c1.metric("Patentados", len(patentados_v))
+    c2.metric("Entregados", len(entregados_v))
+    c3.metric("Faltan Hand Over", len(faltan_ho_v), delta_color="inverse")
+    eficacia = (len(patentados_v[patentados_v['TIENE_HO']]) / len(patentados_v) * 100) if len(patentados_v) > 0 else 0
+    c4.metric("% Eficacia", f"{eficacia:.1f}%")
 
-    # --- TABLA DETALLADA ---
-    st.subheader(f"📋 Detalle: {mes_sel} | {ei_sel}")
-    modo_tabla = st.radio("Mostrar en tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True)
+    # --- TABLA ---
+    st.subheader(f"📋 Listado: {mes_sel} | {ei_sel}")
+    modo_tabla = st.radio("Filtro rápido de tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True)
     
-    df_final = faltan_ho_vista if modo_tabla == "Solo Pendientes ⚠️" else df_f
-
-    busqueda = st.text_input("🔍 Buscar por Chasis, Cliente o Vendedor:")
+    df_final = faltan_ho_v if modo_tabla == "Solo Pendientes ⚠️" else df_f
+    
+    busqueda = st.text_input("🔍 Búsqueda rápida (Chasis, Cliente, etc.):")
     if busqueda:
         mask = df_final.apply(lambda row: row.astype(str).str.contains(busqueda, case=False).any(), axis=1)
         df_final = df_final[mask]
@@ -117,5 +112,5 @@ try:
     st.dataframe(df_final[cols_existentes], use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error("Error al procesar el tablero.")
-    st.write(f"Detalle técnico: {e}")
+    st.error("Error en la interactividad de los filtros.")
+    st.write(f"Detalle: {e}")
