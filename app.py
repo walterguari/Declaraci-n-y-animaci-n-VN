@@ -37,6 +37,7 @@ try:
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors='coerce')
 
+    # Auxiliares globales
     df['TIENE_HO'] = df["Fecha de Hand over"].notna()
     df["Mes_Display"] = df["Fecha de Patentamiento"].dt.strftime('%b %Y')
     col_ei = "ESTADO INTERNO"
@@ -50,13 +51,62 @@ try:
     ])
 
     # ---------------------------------------------------------
-    # PESTAÑA 1: GESTIÓN DE HAND OVER (Se mantiene igual)
+    # PESTAÑA 1: GESTIÓN DE HAND OVER (Lógica de cascada mantenida)
     # ---------------------------------------------------------
     with tab_ho:
         st.header("Gestión de Hand Over y Garantías")
-        # ... (Código de filtros y métricas que ya tenías)
-        # Se omite para brevedad pero está implícito que se mantiene la lógica de cascada
-        st.dataframe(df[COLUMNAS_HO], use_container_width=True)
+        
+        st.write("### 📅 1. Seleccioná el Mes con Pendientes")
+        meses_pendientes = df[~df['TIENE_HO']].dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
+        opciones_meses = meses_pendientes["Mes_Display"].unique().tolist()
+        mes_sel = st.pills("Meses detectados:", ["Todos"] + opciones_meses, default="Todos", key="p_mes")
+
+        st.write("### 🏷️ 2. Filtrar por Estado Interno (Solo pendientes)")
+        df_temp_ei = df[~df['TIENE_HO']].copy()
+        if mes_sel != "Todos":
+            df_temp_ei = df_temp_ei[df_temp_ei["Mes_Display"] == mes_sel]
+        
+        est_disponibles = sorted([e for e in df_temp_ei[col_ei].unique() if e.upper() not in ["NAN", "", "NONE"]])
+        ei_sel = st.pills("Categorías con pendientes:", ["Todos"] + est_disponibles, default="Todos", key="p_ei")
+
+        # Sidebar Filters
+        st.sidebar.header("Filtros de Categoría")
+        canales = sorted(df["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df.columns else []
+        filtro_canal = st.sidebar.multiselect("Canal de Venta", options=canales)
+        vendedores = sorted(df["Vendedor"].dropna().unique()) if "Vendedor" in df.columns else []
+        filtro_vendedor = st.sidebar.multiselect("Vendedor", options=vendedores)
+
+        # Lógica de filtrado Pestaña 1
+        df_f = df.copy()
+        if mes_sel != "Todos": df_f = df_f[df_f["Mes_Display"] == mes_sel]
+        if ei_sel != "Todos": df_f = df_f[df_f[col_ei] == ei_sel]
+        if filtro_canal: df_f = df_f[df_f["Canal de Venta"].isin(filtro_canal)]
+        if filtro_vendedor: df_f = df_f[df_f["Vendedor"].isin(filtro_vendedor)]
+
+        # Métricas Pestaña 1
+        st.divider()
+        c1, c2, c3, c4 = st.columns(4)
+        pat_v = df_f[df_f["Fecha de Patentamiento"].notna()]
+        ent_v = df_f[df_f["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
+        fal_v = pat_v[~pat_v['TIENE_HO']]
+        
+        c1.metric("Patentados", len(pat_v))
+        c2.metric("Entregados", len(ent_v))
+        c3.metric("Faltan Hand Over", len(fal_v), delta_color="inverse")
+        eficacia = (len(pat_v[pat_v['TIENE_HO']]) / len(pat_v) * 100) if len(pat_v) > 0 else 0
+        c4.metric("% Eficacia", f"{eficacia:.1f}%")
+
+        st.subheader(f"📋 Listado: {mes_sel} | {ei_sel}")
+        modo = st.radio("Filtro tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True)
+        df_final = fal_v if modo == "Solo Pendientes ⚠️" else df_f
+        
+        busq = st.text_input("🔍 Búsqueda rápida en Hand Over:")
+        if busq:
+            mask = df_final.apply(lambda row: row.astype(str).str.contains(busq, case=False).any(), axis=1)
+            df_final = df_final[mask]
+
+        cols_ok = [c for c in COLUMNAS_HO if c in df_final.columns]
+        st.dataframe(df_final[cols_ok], use_container_width=True, hide_index=True)
 
     # ---------------------------------------------------------
     # PESTAÑA 2: ANÁLISIS DE TIEMPOS Y VOLÚMENES (AJUSTADA)
@@ -64,19 +114,19 @@ try:
     with tab_tiempos:
         st.header("⏱️ Análisis de Tiempos y Volúmenes Operativos")
         
-        # Métricas de Volumen (Globales)
         v1, v2 = st.columns(2)
         v1.metric("Cantidad de Facturaciones", f"{df['Fecha de Facturacion'].notna().sum()} Unid.")
         v2.metric("Cantidad de Patentamientos", f"{df['Fecha de Patentamiento'].notna().sum()} Unid.")
 
         st.divider()
+        st.subheader("📊 Evolución Mensual (Gráfico Interactivo)")
+        st.info("💡 Hacé clic en una barra para filtrar las demoras y la tabla detallada.")
         
-        # SELECTORES PARA EL GRÁFICO
         g_col1, g_col2 = st.columns(2)
         with g_col1:
             años = sorted(list(set(df["Fecha de Facturacion"].dt.year.dropna().unique()) | 
                                set(df["Fecha de Patentamiento"].dt.year.dropna().unique())), reverse=True)
-            año_sel = st.selectbox("Año:", años if años else [2026], key="sel_año_t")
+            año_sel = st.selectbox("Seleccionar Año:", años if años else [2026], key="sel_año_t")
         with g_col2:
             tipo_g = st.pills("Evolución Mensual de:", ["Facturación", "Patentamiento"], default="Facturación", key="pill_tipo_t")
 
@@ -85,11 +135,11 @@ try:
         
         mes_click = None
         if not df_g.empty:
-            df_g["Mes"] = df_g[col_f].dt.month
+            df_g["Mes_Num"] = df_g[col_f].dt.month
             df_g["Mes_Nom"] = df_g[col_f].dt.strftime('%B')
-            resumen = df_g.groupby(["Mes", "Mes_Nom"]).size().reset_index(name="Cant")
+            resumen = df_g.groupby(["Mes_Num", "Mes_Nom"]).size().reset_index(name="Cant")
             
-            fig_v = px.bar(resumen.sort_values("Mes"), x="Mes_Nom", y="Cant", text_auto=True, 
+            fig_v = px.bar(resumen.sort_values("Mes_Num"), x="Mes_Nom", y="Cant", text_auto=True, 
                            title=f"Volumen de {tipo_g} - {año_sel}", 
                            color_discrete_sequence=['#3498db' if tipo_g == "Facturación" else '#2ecc71'],
                            template="plotly_white")
@@ -98,44 +148,55 @@ try:
             
             if evento_clic and "selection" in evento_clic and evento_clic["selection"]["points"]:
                 mes_click = evento_clic["selection"]["points"][0]["x"]
-                st.success(f"🔎 Auditando mes: **{mes_click} {año_sel}**")
+                st.success(f"🔎 Auditando: **{mes_click} {año_sel}**")
 
-        # --- CÁLCULOS DE LEAD TIMES MEJORADOS ---
-        # Usamos df_g (el año seleccionado) o filtramos por mes si hubo clic
+        # --- CÁLCULOS DE TIEMPOS (Incluye facturados sin entrega) ---
         df_t = df_g.copy()
         if mes_click:
             df_t = df_t[df_t["Mes_Nom"] == mes_click]
 
-        # Función para calcular días evitando errores y permitiendo "tiempos en curso"
         hoy = pd.Timestamp(datetime.now().date())
-
         def calc_days(start, end):
             if pd.isna(start): return None
-            # Si no hay fecha final, calculamos hasta hoy
             final = end if pd.notna(end) else hoy
             diff = (final - start).days
-            return max(0, diff) # Evita negativos
+            return max(0, diff)
 
         df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_days(r["Fecha de Facturacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
         df_t["Gestoría (Retiro a Papeles)"] = df_t.apply(lambda r: calc_days(r["Fecha que el Gestor Retira Doc"], r["Fecha Disponibilidad Papeles"]), axis=1)
         df_t["Entrega (Papeles a Entrega)"] = df_t.apply(lambda r: calc_days(r["Fecha Disponibilidad Papeles"], r["Fecha de confirmacion de entrega"]), axis=1)
         df_t["Demora Total"] = df_t.apply(lambda r: calc_days(r["Fecha de Facturacion"], r["Fecha de confirmacion de entrega"]), axis=1)
 
-        # MÉTRICAS
-        st.subheader(f"⏳ Promedios de Demora - {mes_click if mes_click else 'Año completo'}")
+        st.divider()
+        st.subheader(f"⏳ Promedios de Demora - {mes_click if mes_click else 'Anual'}")
         mt1, mt2, mt3, mt4 = st.columns(4)
         mt1.metric("Fact. a Gestor", f"{df_t['Facturación a Gestor'].mean():.1f} d")
         mt2.metric("Gestión Gestor", f"{df_t['Gestoría (Retiro a Papeles)'].mean():.1f} d")
         mt3.metric("Papeles a Entrega", f"{df_t['Entrega (Papeles a Entrega)'].mean():.1f} d")
         mt4.metric("Ciclo Total", f"{df_t['Demora Total'].mean():.1f} d")
 
-        # TABLA DETALLADA (Sin dropna para que aparezcan todos los facturados)
-        st.subheader("📋 Detalle de Unidades (Facturados en el periodo)")
+        st.subheader("📋 Detalle de Unidades (Facturadas en el periodo)")
         cols_t_view = ["Vendedor", "Cliente", "Chasis", "Facturación a Gestor", "Gestoría (Retiro a Papeles)", "Entrega (Papeles a Entrega)", "Demora Total", "Estado"]
-        
-        # Mostramos la tabla. Los que no tengan entrega aparecerán con la demora calculada a "hoy"
         st.dataframe(df_t[cols_t_view], use_container_width=True, hide_index=True)
 
+    # ---------------------------------------------------------
+    # PESTAÑA 3: ANÁLISIS VISUAL
+    # ---------------------------------------------------------
+    with tab_graficos:
+        st.header("Análisis Visual de Gestión")
+        # Usamos fal_v definido en la Pestaña 1
+        if 'fal_v' in locals() and not fal_v.empty:
+            g1, g2 = st.columns(2)
+            with g1:
+                st.write("### Pendientes de HO por Vendedor")
+                v_counts = fal_v["Vendedor"].value_counts().reset_index()
+                v_counts.columns = ["Vendedor", "Cant"]
+                st.plotly_chart(px.bar(v_counts, x="Vendedor", y="Cant", color="Cant", template="plotly_white"), use_container_width=True)
+            with g2:
+                st.write("### Estado Interno de los Pendientes")
+                st.plotly_chart(px.pie(fal_v, names="ESTADO INTERNO", hole=0.4), use_container_width=True)
+        else:
+            st.success("Sin pendientes de Hand Over para mostrar gráficos.")
+
 except Exception as e:
-    st.error("Error al cargar el portal.")
-    st.write(e)
+    st.error(f"Error al cargar el portal: {e}")
