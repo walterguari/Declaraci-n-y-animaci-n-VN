@@ -1,6 +1,7 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+import numpy as np
 import plotly.express as px
 from datetime import datetime
 
@@ -37,7 +38,6 @@ try:
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors='coerce')
 
-    # Auxiliares globales
     df['TIENE_HO'] = df["Fecha de Hand over"].notna()
     df["Mes_Display"] = df["Fecha de Patentamiento"].dt.strftime('%b %Y')
     col_ei = "ESTADO INTERNO"
@@ -69,21 +69,18 @@ try:
         est_disponibles = sorted([e for e in df_temp_ei[col_ei].unique() if e.upper() not in ["NAN", "", "NONE"]])
         ei_sel = st.pills("Categorías con pendientes:", ["Todos"] + est_disponibles, default="Todos", key="p_ei")
 
-        # Sidebar Filters
         st.sidebar.header("Filtros de Categoría")
         canales = sorted(df["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df.columns else []
         filtro_canal = st.sidebar.multiselect("Canal de Venta", options=canales)
         vendedores = sorted(df["Vendedor"].dropna().unique()) if "Vendedor" in df.columns else []
         filtro_vendedor = st.sidebar.multiselect("Vendedor", options=vendedores)
 
-        # Lógica de filtrado
         df_f = df.copy()
         if mes_sel != "Todos": df_f = df_f[df_f["Mes_Display"] == mes_sel]
         if ei_sel != "Todos": df_f = df_f[df_f[col_ei] == ei_sel]
         if filtro_canal: df_f = df_f[df_f["Canal de Venta"].isin(filtro_canal)]
         if filtro_vendedor: df_f = df_f[df_f["Vendedor"].isin(filtro_vendedor)]
 
-        # Métricas principales
         st.divider()
         c1, c2, c3, c4 = st.columns(4)
         pat_v = df_f[df_f["Fecha de Patentamiento"].notna()]
@@ -100,7 +97,7 @@ try:
         modo = st.radio("Filtro tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True)
         df_final = fal_v if modo == "Solo Pendientes ⚠️" else df_f
         
-        busq = st.text_input("🔍 Búsqueda rápida en Hand Over:")
+        busq = st.text_input("🔍 Búsqueda rápida:")
         if busq:
             mask = df_final.apply(lambda row: row.astype(str).str.contains(busq, case=False).any(), axis=1)
             df_final = df_final[mask]
@@ -109,7 +106,7 @@ try:
         st.dataframe(df_final[cols_ok], use_container_width=True, hide_index=True)
 
     # ---------------------------------------------------------
-    # PESTAÑA 2: ANÁLISIS DE TIEMPOS Y VOLÚMENES
+    # PESTAÑA 2: ANÁLISIS DE TIEMPOS Y VOLÚMENES (CON DÍAS HÁBILES)
     # ---------------------------------------------------------
     with tab_tiempos:
         st.header("⏱️ Análisis de Tiempos y Volúmenes Operativos")
@@ -150,43 +147,57 @@ try:
                 mes_click = evento_clic["selection"]["points"][0]["x"]
                 st.success(f"🔎 Auditando: **{mes_click} {año_sel}**")
 
-        # --- CÁLCULOS DE TIEMPOS (Incluye facturados sin entrega) ---
-        df_t = df_g.copy()
+        # --- LÓGICA DE DÍAS HÁBILES (LABORABLES) ---
+        df_t = df_g.copy() if mes_click else df.copy()
         if mes_click:
             df_t = df_t[df_t["Mes_Nom"] == mes_click]
 
-        hoy = pd.Timestamp(datetime.now().date())
-        def calc_days(start, end):
+        hoy_np = np.datetime64(datetime.now().date())
+
+        def calc_working_days(start, end):
             if pd.isna(start): return None
-            final = end if pd.notna(end) else hoy
-            diff = (final - start).days
-            return max(0, diff)
+            # Convertimos a numpy datetime64 para busday_count
+            f_inicio = np.datetime64(start, 'D')
+            f_final = np.datetime64(end, 'D') if pd.notna(end) else hoy_np
+            
+            if f_inicio > f_final: return 0
+            return int(np.busday_count(f_inicio, f_final))
 
-        df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_days(r["Fecha de Facturacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
-        df_t["Gestoría (Retiro a Papeles)"] = df_t.apply(lambda r: calc_days(r["Fecha que el Gestor Retira Doc"], r["Fecha Disponibilidad Papeles"]), axis=1)
-        df_t["Entrega (Papeles a Entrega)"] = df_t.apply(lambda r: calc_days(r["Fecha Disponibilidad Papeles"], r["Fecha de confirmacion de entrega"]), axis=1)
-        df_t["Demora Total"] = df_t.apply(lambda r: calc_days(r["Fecha de Facturacion"], r["Fecha de confirmacion de entrega"]), axis=1)
+        df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
+        df_t["Gestoría (Retiro a Papeles)"] = df_t.apply(lambda r: calc_working_days(r["Fecha que el Gestor Retira Doc"], r["Fecha Disponibilidad Papeles"]), axis=1)
+        df_t["Entrega (Papeles a Entrega)"] = df_t.apply(lambda r: calc_working_days(r["Fecha Disponibilidad Papeles"], r["Fecha de confirmacion de entrega"]), axis=1)
+        df_t["Demora Total"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha de confirmacion de entrega"]), axis=1)
 
+        # --- MÉTRICAS CON OBJETIVOS Y AYUDA ---
         st.divider()
-        st.subheader(f"⏳ Promedios de Demora - {mes_click if mes_click else 'Anual'}")
+        st.subheader(f"⏳ Promedios Días Hábiles - {mes_click if mes_click else 'Anual'}")
         mt1, mt2, mt3, mt4 = st.columns(4)
         
-        # NOTAS DE AYUDA (Tooltips) agregadas aquí:
-        mt1.metric("Fact. a Gestor", f"{df_t['Facturación a Gestor'].mean():.1f} d",
-                   help="Mide días desde Facturación hasta que el Gestor retira la documentación. Objetivo: Evaluar rapidez administrativa interna.")
-        mt2.metric("Gestión Gestor", f"{df_t['Gestoría (Retiro a Papeles)'].mean():.1f} d",
-                   help="Mide días desde el retiro del gestor hasta que los papeles están disponibles. Objetivo: Controlar tiempos de patentamiento y trámites.")
-        mt3.metric("Papeles a Entrega", f"{df_t['Entrega (Papeles a Entrega)'].mean():.1f} d",
-                   help="Mide días desde disponibilidad de papeles hasta entrega confirmada. Objetivo: Evaluar eficiencia en coordinación de turnos y alistamiento.")
-        mt4.metric("Ciclo Total", f"{df_t['Demora Total'].mean():.1f} d",
-                   help="Mide la demora total desde la Facturación hasta la Entrega final. Es la percepción de espera total del cliente.")
+        # Definición de Objetivos
+        OBJ1, OBJ2, OBJ3 = 2, 3, 3
+        p1, p2, p3, p4 = df_t["Facturación a Gestor"].mean(), df_t["Gestoría (Retiro a Papeles)"].mean(), df_t["Entrega (Papeles a Entrega)"].mean(), df_t["Demora Total"].mean()
 
-        st.subheader("📋 Detalle de Unidades (Facturadas en el periodo)")
+        mt1.metric("Fact. a Gestor", f"{p1:.1f} d", 
+                   delta=f"{p1-OBJ1:.1f} vs Obj" if pd.notna(p1) else None, delta_color="inverse",
+                   help=f"Objetivo: {OBJ1} días hábiles. Mide rapidez administrativa interna.")
+        
+        mt2.metric("Gestión Gestor", f"{p2:.1f} d", 
+                   delta=f"{p2-OBJ2:.1f} vs Obj" if pd.notna(p2) else None, delta_color="inverse",
+                   help=f"Objetivo: {OBJ2} días hábiles. Controla tiempos de patentamiento y gestoría.")
+        
+        mt3.metric("Papeles a Entrega", f"{p3:.1f} d", 
+                   delta=f"{p3-OBJ3:.1f} vs Obj" if pd.notna(p3) else None, delta_color="inverse",
+                   help=f"Objetivo: {OBJ3} días hábiles. Evalúa coordinación de turnos y alistamiento.")
+        
+        mt4.metric("Ciclo Total", f"{p4:.1f} d", 
+                   help="Mide días hábiles totales desde Facturación a Entrega. Es la percepción del cliente.")
+
+        st.subheader("📋 Detalle de Unidades (Días Laborales)")
         cols_t_view = ["Vendedor", "Cliente", "Chasis", "Facturación a Gestor", "Gestoría (Retiro a Papeles)", "Entrega (Papeles a Entrega)", "Demora Total", "Estado"]
         st.dataframe(df_t[cols_t_view], use_container_width=True, hide_index=True)
 
     # ---------------------------------------------------------
-    # PESTAÑA 3: ANÁLISIS VISUAL
+    # PESTAÑA 3: ANÁLISIS VISUAL (Mantenida)
     # ---------------------------------------------------------
     with tab_graficos:
         st.header("Análisis Visual de Gestión")
@@ -194,14 +205,12 @@ try:
             g1, g2 = st.columns(2)
             with g1:
                 st.write("### Pendientes de HO por Vendedor")
-                v_counts = fal_v["Vendedor"].value_counts().reset_index()
-                v_counts.columns = ["Vendedor", "Cant"]
-                st.plotly_chart(px.bar(v_counts, x="Vendedor", y="Cant", color="Cant", template="plotly_white"), use_container_width=True)
+                v_c = fal_v["Vendedor"].value_counts().reset_index()
+                v_c.columns = ["Vendedor", "Cant"]
+                st.plotly_chart(px.bar(v_c, x="Vendedor", y="Cant", color="Cant", template="plotly_white"), use_container_width=True)
             with g2:
-                st.write("### Estado Interno de los Pendientes")
+                st.write("### Estado Interno de Pendientes")
                 st.plotly_chart(px.pie(fal_v, names="ESTADO INTERNO", hole=0.4), use_container_width=True)
-        else:
-            st.success("Sin pendientes de Hand Over para mostrar gráficos.")
 
 except Exception as e:
     st.error(f"Error al cargar el portal: {e}")
