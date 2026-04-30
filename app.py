@@ -12,10 +12,10 @@ st.set_page_config(page_title="Portal de Gestión VN", layout="wide", page_icon=
 conn = st.connection("gsheets", type=GSheetsConnection)
 url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
 
-# Columnas para la pestaña de Hand Over
+# Columnas para la pestaña de Hand Over - AJUSTE: AGREGADO "VIN"
 COLUMNAS_HO = [
     "Marca", "Vendedor", "Cliente", "Teléfono", 
-    "Chasis", "Fecha de Patentamiento", "Patente", 
+    "Chasis", "VIN", "Fecha de Patentamiento", "Patente", 
     "Estado Administrativo", "Observacion de la Documentación", 
     "Estado", "Fecha de confirmacion de entrega", "ESTADO INTERNO", "Fecha de Hand over"
 ]
@@ -47,7 +47,7 @@ try:
         "Fecha de Patentamiento", "Fecha de Hand over", "Fecha de Facturacion",
         "Fecha que el Gestor Retira Doc", "Fecha Disponibilidad Papeles",
         "Fecha de confirmacion de entrega",
-        "Fecha de Pedido de Preparacion"  # <--- NUEVA COLUMNA AGREGADA
+        "Fecha de Pedido de Preparacion" 
     ]
     for c in cols_a_fecha:
         if c in df.columns:
@@ -67,7 +67,7 @@ try:
     ])
 
     # ---------------------------------------------------------
-    # PESTAÑA 1: GESTIÓN DE HAND OVER (Sin cambios)
+    # PESTAÑA 1: GESTIÓN DE HAND OVER
     # ---------------------------------------------------------
     with tab_ho:
         st.header("Gestión de Hand Over y Garantías")
@@ -108,11 +108,12 @@ try:
             mask = df_final.apply(lambda row: row.astype(str).str.contains(busq, case=False).any(), axis=1)
             df_final = df_final[mask]
 
+        # Muestra las columnas definidas en COLUMNAS_HO (incluyendo el nuevo VIN)
         cols_ok = [c for c in COLUMNAS_HO if c in df_final.columns]
         st.dataframe(df_final[cols_ok], use_container_width=True, hide_index=True)
 
     # ---------------------------------------------------------
-    # PESTAÑA 2: ANÁLISIS DE TIEMPOS (Ajustada según imagen)
+    # PESTAÑA 2: ANÁLISIS DE TIEMPOS
     # ---------------------------------------------------------
     with tab_tiempos:
         st.header("⏱️ Análisis de Tiempos Operativos (Días Hábiles)")
@@ -150,7 +151,6 @@ try:
                 mes_click = evento_clic["selection"]["points"][0]["x"]
                 st.success(f"🔎 Auditando {tipo_g}: **{mes_click} {año_sel}**")
 
-        # --- LÓGICA DE DÍAS HÁBILES ---
         df_t = df_g.copy()
         if mes_click:
             df_t = df_t[df_t["Mes_Nom"] == mes_click]
@@ -165,9 +165,8 @@ try:
             dias = int(np.busday_count(f_inicio, f_final))
             return dias if dias < 365 else None 
 
-        # --- CÁLCULOS DE TIEMPOS (Ajuste solicitado) ---
         df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
-        df_t["Prep a Retiro"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Pedido de Preparacion"], r["Fecha que el Gestor Retira Doc"]), axis=1) # <--- NUEVO
+        df_t["Prep a Retiro"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Pedido de Preparacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
         df_t["Gestoría"] = df_t.apply(lambda r: calc_working_days(r["Fecha que el Gestor Retira Doc"], r["Fecha Disponibilidad Papeles"]), axis=1)
         df_t["Papeles a Entrega"] = df_t.apply(lambda r: calc_working_days(r["Fecha Disponibilidad Papeles"], r["Fecha de confirmacion de entrega"]), axis=1)
         df_t["Demora Total"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha de confirmacion de entrega"]), axis=1)
@@ -175,35 +174,22 @@ try:
         st.divider()
         st.subheader(f"⏳ Promedios Días Hábiles - {mes_click if mes_click else 'Anual'}")
         
-        # AJUSTE DE COLUMNAS PARA EL NUEVO INDICADOR (5 columnas en lugar de 4)
         mt1, mt_prep, mt2, mt3, mt4 = st.columns(5)
         
-        OBJ1, OBJ_PREP, OBJ2, OBJ3 = 2, 1, 3, 3 # Agregué un objetivo estimado para Prep de 1 día
+        OBJ1, OBJ_PREP, OBJ2, OBJ3 = 2, 1, 3, 3 
         p1, p_prep, p2, p3, p4 = df_t["Facturación a Gestor"].mean(), df_t["Prep a Retiro"].mean(), df_t["Gestoría"].mean(), df_t["Papeles a Entrega"].mean(), df_t["Demora Total"].mean()
 
         mt1.metric("Fact. a Gestor", f"{p1:.1f} d" if pd.notna(p1) else "0.0 d", 
-                   delta=f"{p1-OBJ1:.1f} vs Obj" if pd.notna(p1) else None, delta_color="inverse",
-                   help="Mide: Fecha Retiro Gestor - Fecha Facturación.")
-        
-        # --- NUEVO INDICADOR SOLICITADO ---
+                   delta=f"{p1-OBJ1:.1f} vs Obj" if pd.notna(p1) else None, delta_color="inverse")
         mt_prep.metric("Prep. a Retiro", f"{p_prep:.1f} d" if pd.notna(p_prep) else "0.0 d", 
-                   delta=f"{p_prep-OBJ_PREP:.1f} vs Obj" if pd.notna(p_prep) else None, delta_color="inverse",
-                   help="Mide: Fecha Retiro Gestor - Fecha de Pedido de Preparación.")
-        
+                   delta=f"{p_prep-OBJ_PREP:.1f} vs Obj" if pd.notna(p_prep) else None, delta_color="inverse")
         mt2.metric("Gestión Gestor", f"{p2:.1f} d" if pd.notna(p2) else "0.0 d", 
-                   delta=f"{p2-OBJ2:.1f} vs Obj" if pd.notna(p2) else None, delta_color="inverse",
-                   help="Objetivo: {OBJ2} días. Mide: Fecha Disp. Papeles - Fecha Retiro Gestor.")
-        
+                   delta=f"{p2-OBJ2:.1f} vs Obj" if pd.notna(p2) else None, delta_color="inverse")
         mt3.metric("Papeles a Entrega", f"{p3:.1f} d" if pd.notna(p3) else "0.0 d", 
-                   delta=f"{p3-OBJ3:.1f} vs Obj" if pd.notna(p3) else None, delta_color="inverse",
-                   help="Objetivo: {OBJ3} días. Mide: Fecha Conf. Entrega - Fecha Disp. Papeles.")
-        
-        mt4.metric("Ciclo Total", f"{p4:.1f} d" if pd.notna(p4) else "0.0 d", 
-                   help="Mide: Fecha Conf. Entrega - Fecha Facturación (Ciclo Completo).")
+                   delta=f"{p3-OBJ3:.1f} vs Obj" if pd.notna(p3) else None, delta_color="inverse")
+        mt4.metric("Ciclo Total", f"{p4:.1f} d" if pd.notna(p4) else "0.0 d")
 
         st.subheader(f"📋 Detalle de Unidades ({tipo_g} en el periodo)")
-        
-        # --- CONFIGURACIÓN DE LA TABLA (Añadiendo el nuevo cálculo) ---
         st.dataframe(
             df_t[["Marca", "Vendedor", "Cliente", "Chasis", "Prep a Retiro", "Facturación a Gestor", "Gestoría", "Papeles a Entrega", "Demora Total", "Fecha de confirmacion de entrega", "Estado"]], 
             use_container_width=True, 
