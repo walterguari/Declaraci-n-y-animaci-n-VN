@@ -72,36 +72,50 @@ try:
     with tab_ho:
         st.header("Gestión de Hand Over y Garantías")
         st.write("### 📅 1. Seleccioná el Mes con Pendientes")
-        meses_pendientes = df[~df['TIENE_HO']].dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
-        opciones_meses = meses_pendientes["Mes_Display"].unique().tolist()
+        
+        # Universo de meses basados en patentamiento
+        meses_disp = df.dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
+        opciones_meses = meses_disp["Mes_Display"].unique().tolist()
         mes_sel = st.pills("Meses detectados:", ["Todos"] + opciones_meses, default="Todos", key="p_mes")
 
-        st.write("### 🏷️ 2. Filtrar por Estado Interno (Solo pendientes)")
-        df_temp_ei = df[~df['TIENE_HO']].copy()
+        st.write("### 🏷️ 2. Filtrar por Estado Interno")
+        df_temp_ei = df.copy()
         if mes_sel != "Todos":
             df_temp_ei = df_temp_ei[df_temp_ei["Mes_Display"] == mes_sel]
         
         est_disponibles = sorted([e for e in df_temp_ei[col_ei].unique() if e.upper() not in ["NAN", "", "NONE"]])
-        ei_sel = st.pills("Categorías con pendientes:", ["Todos"] + est_disponibles, default="Todos", key="p_ei")
+        ei_sel = st.pills("Categorías disponibles:", ["Todos"] + est_disponibles, default="Todos", key="p_ei")
 
+        # Filtrado para métricas
         df_f_ho = df.copy()
         if mes_sel != "Todos": df_f_ho = df_f_ho[df_f_ho["Mes_Display"] == mes_sel]
         if ei_sel != "Todos": df_f_ho = df_f_ho[df_f_ho[col_ei] == ei_sel]
 
         st.divider()
-        c1, c2, c3, c4 = st.columns(4)
+        
+        # --- LÓGICA DE MÉTRICAS ACTUALIZADA ---
+        total_unid = len(df_f_ho)
         pat_v = df_f_ho[df_f_ho["Fecha de Patentamiento"].notna()]
         ent_v = df_f_ho[df_f_ho["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
-        fal_v = pat_v[~pat_v['TIENE_HO']]
         
+        # RECONTEO SOLICITADO: Patentados - Entregados
+        faltan_ho = len(pat_v) - len(ent_v)
+        eficacia = (len(ent_v) / len(pat_v) * 100) if len(pat_v) > 0 else 0
+        
+        c0, c1, c2, c3, c4 = st.columns(5)
+        c0.metric("Total Unidades", total_unid)
         c1.metric("Patentados", len(pat_v))
         c2.metric("Entregados", len(ent_v))
-        c3.metric("Faltan Hand Over", len(fal_v), delta_color="inverse")
-        eficacia = (len(pat_v[pat_v['TIENE_HO']]) / len(pat_v) * 100) if len(pat_v) > 0 else 0
+        c3.metric("Faltan Hand Over", faltan_ho, delta_color="inverse")
         c4.metric("% Eficacia", f"{eficacia:.1f}%")
 
+        # Lógica de la tabla
         modo = st.radio("Filtro tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True)
-        df_final = fal_v if modo == "Solo Pendientes ⚠️" else df_f_ho
+        # Pendientes son aquellos patentados que NO están entregados
+        if modo == "Solo Pendientes ⚠️":
+            df_final = pat_v[~pat_v["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
+        else:
+            df_final = df_f_ho
         
         busq = st.text_input("🔍 Búsqueda rápida:")
         if busq:
@@ -123,7 +137,6 @@ try:
 
         st.divider()
         st.subheader("📊 Evolución Mensual e Interactividad")
-        st.info("💡 Hacé clic en una barra para filtrar las demoras y la tabla detallada.")
         
         g_col1, g_col2 = st.columns(2)
         años = sorted(list(set(df["Fecha de Facturacion"].dt.year.dropna().unique()) | set(df["Fecha de Patentamiento"].dt.year.dropna().unique())), reverse=True)
@@ -164,7 +177,6 @@ try:
             dias = int(np.busday_count(f_inicio, f_final))
             return dias if dias < 365 else None 
 
-        # Cálculos de días hábiles
         df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
         df_t["Prep a Retiro"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Pedido de Preparacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
         df_t["Gestoría"] = df_t.apply(lambda r: calc_working_days(r["Fecha que el Gestor Retira Doc"], r["Fecha Disponibilidad Papeles"]), axis=1)
@@ -189,28 +201,13 @@ try:
                    delta=f"{p3-OBJ3:.1f} vs Obj" if pd.notna(p3) else None, delta_color="inverse")
         mt4.metric("Ciclo Total", f"{p4:.1f} d" if pd.notna(p4) else "0.0 d")
 
-        st.subheader(f"📋 Detalle de Unidades ({tipo_g} en el periodo)")
-        
-        # AJUSTE: Columnas ordenadas cronológicamente y agregada "Prep a Retiro" en la selección del DataFrame
         columnas_detalle = [
             "Marca", "Vendedor", "Cliente", "Chasis", 
             "Facturación a Gestor", "Prep a Retiro", "Gestoría", "Papeles a Entrega", 
             "Demora Total", "Fecha de confirmacion de entrega", "Estado"
         ]
         
-        st.dataframe(
-            df_t[columnas_detalle], 
-            use_container_width=True, 
-            hide_index=True,
-            column_config={
-                "Facturación a Gestor": st.column_config.NumberColumn(help="Cálculo: [Fecha que el Gestor Retira Doc] - [Fecha de Facturación]"),
-                "Prep a Retiro": st.column_config.NumberColumn(help="Cálculo: [Fecha que el Gestor Retira Doc] - [Fecha de Pedido de Preparacion]"),
-                "Gestoría": st.column_config.NumberColumn(help="Cálculo: [Fecha Disponibilidad Papeles] - [Fecha que el Gestor Retira Doc]"),
-                "Papeles a Entrega": st.column_config.NumberColumn(help="Cálculo: [Fecha de confirmacion de entrega] - [Fecha Disponibilidad Papeles]"),
-                "Demora Total": st.column_config.NumberColumn(help="Cálculo: [Fecha de confirmacion de entrega] - [Fecha de Facturación]"),
-                "Fecha de confirmacion de entrega": st.column_config.DateColumn("Fecha Entrega")
-            }
-        )
+        st.dataframe(df_t[columnas_detalle], use_container_width=True, hide_index=True)
 
     # ---------------------------------------------------------
     # PESTAÑA 3: ANÁLISIS VISUAL
@@ -223,8 +220,8 @@ try:
                 st.write("### Unidades por Marca")
                 st.plotly_chart(px.bar(df["Marca"].value_counts().reset_index(), x="Marca", y="count", color="Marca", template="plotly_white"), use_container_width=True)
             with g2:
-                st.write("### Estado Interno de los Pendientes")
-                st.plotly_chart(px.pie(df[df['TIENE_HO']==False], names="ESTADO INTERNO", hole=0.4), use_container_width=True)
+                st.write("### Estado Interno")
+                st.plotly_chart(px.pie(df, names="ESTADO INTERNO", hole=0.4), use_container_width=True)
 
 except Exception as e:
     st.error(f"Error al cargar el portal: {e}")
