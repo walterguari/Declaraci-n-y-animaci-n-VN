@@ -71,9 +71,9 @@ try:
     # ---------------------------------------------------------
     with tab_ho:
         st.header("Gestión de Hand Over y Garantías")
-        st.write("### 📅 1. Seleccioná el Mes con Pendientes")
         
-        # Universo de meses basados en patentamiento
+        st.write("### 📅 1. Seleccioná el Mes")
+        # Cambiamos la lógica para que muestre todos los meses que tienen patentamientos
         meses_disp = df.dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
         opciones_meses = meses_disp["Mes_Display"].unique().tolist()
         mes_sel = st.pills("Meses detectados:", ["Todos"] + opciones_meses, default="Todos", key="p_mes")
@@ -84,35 +84,33 @@ try:
             df_temp_ei = df_temp_ei[df_temp_ei["Mes_Display"] == mes_sel]
         
         est_disponibles = sorted([e for e in df_temp_ei[col_ei].unique() if e.upper() not in ["NAN", "", "NONE"]])
-        ei_sel = st.pills("Categorías disponibles:", ["Todos"] + est_disponibles, default="Todos", key="p_ei")
+        ei_sel = st.pills("Categorías detectadas:", ["Todos"] + est_disponibles, default="Todos", key="p_ei")
 
-        # Filtrado para métricas
         df_f_ho = df.copy()
         if mes_sel != "Todos": df_f_ho = df_f_ho[df_f_ho["Mes_Display"] == mes_sel]
         if ei_sel != "Todos": df_f_ho = df_f_ho[df_f_ho[col_ei] == ei_sel]
 
         st.divider()
         
-        # --- LÓGICA DE MÉTRICAS ACTUALIZADA ---
-        total_unid = len(df_f_ho)
+        # --- NUEVA LÓGICA DE INDICADORES ---
         pat_v = df_f_ho[df_f_ho["Fecha de Patentamiento"].notna()]
         ent_v = df_f_ho[df_f_ho["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
         
-        # RECONTEO SOLICITADO: Patentados - Entregados
+        # El reconteo solicitado: Patentados - Entregados
         faltan_ho = len(pat_v) - len(ent_v)
         eficacia = (len(ent_v) / len(pat_v) * 100) if len(pat_v) > 0 else 0
         
         c0, c1, c2, c3, c4 = st.columns(5)
-        c0.metric("Total Unidades", total_unid)
+        c0.metric("Conteo Unidades", len(df_f_ho)) # Indicador adicional solicitado
         c1.metric("Patentados", len(pat_v))
         c2.metric("Entregados", len(ent_v))
         c3.metric("Faltan Hand Over", faltan_ho, delta_color="inverse")
         c4.metric("% Eficacia", f"{eficacia:.1f}%")
 
-        # Lógica de la tabla
-        modo = st.radio("Filtro tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True)
-        # Pendientes son aquellos patentados que NO están entregados
-        if modo == "Solo Pendientes ⚠️":
+        modo = st.radio("Filtro tabla:", ["Solo Pendientes de Entrega ⚠️", "Todos"], horizontal=True)
+        
+        # Filtro de tabla: Si es pendiente, mostramos los patentados que no han sido entregados
+        if modo == "Solo Pendientes de Entrega ⚠️":
             df_final = pat_v[~pat_v["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
         else:
             df_final = df_f_ho
@@ -220,7 +218,7 @@ try:
                 st.write("### Unidades por Marca")
                 st.plotly_chart(px.bar(df["Marca"].value_counts().reset_index(), x="Marca", y="count", color="Marca", template="plotly_white"), use_container_width=True)
             with g2:
-                st.write("### Estado Interno")
+                st.write("### Distribución por Estado Interno")
                 st.plotly_chart(px.pie(df, names="ESTADO INTERNO", hole=0.4), use_container_width=True)
 
 except Exception as e:
