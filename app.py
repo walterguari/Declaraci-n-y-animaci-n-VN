@@ -12,7 +12,7 @@ st.set_page_config(page_title="Portal de Gestión VN", layout="wide", page_icon=
 conn = st.connection("gsheets", type=GSheetsConnection)
 url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
 
-# Columnas para la pestaña de Hand Over - AJUSTE: AGREGADO "VIN"
+# Columnas para la pestaña de Hand Over
 COLUMNAS_HO = [
     "Marca", "Vendedor", "Cliente", "Teléfono", 
     "Chasis", "VIN", "Fecha de Patentamiento", "Patente", 
@@ -108,7 +108,6 @@ try:
             mask = df_final.apply(lambda row: row.astype(str).str.contains(busq, case=False).any(), axis=1)
             df_final = df_final[mask]
 
-        # Muestra las columnas definidas en COLUMNAS_HO (incluyendo el nuevo VIN)
         cols_ok = [c for c in COLUMNAS_HO if c in df_final.columns]
         st.dataframe(df_final[cols_ok], use_container_width=True, hide_index=True)
 
@@ -165,6 +164,7 @@ try:
             dias = int(np.busday_count(f_inicio, f_final))
             return dias if dias < 365 else None 
 
+        # Cálculos de días hábiles
         df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
         df_t["Prep a Retiro"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Pedido de Preparacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
         df_t["Gestoría"] = df_t.apply(lambda r: calc_working_days(r["Fecha que el Gestor Retira Doc"], r["Fecha Disponibilidad Papeles"]), axis=1)
@@ -190,13 +190,21 @@ try:
         mt4.metric("Ciclo Total", f"{p4:.1f} d" if pd.notna(p4) else "0.0 d")
 
         st.subheader(f"📋 Detalle de Unidades ({tipo_g} en el periodo)")
+        
+        # AJUSTE: Columnas ordenadas cronológicamente y agregada "Prep a Retiro" en la selección del DataFrame
+        columnas_detalle = [
+            "Marca", "Vendedor", "Cliente", "Chasis", 
+            "Facturación a Gestor", "Prep a Retiro", "Gestoría", "Papeles a Entrega", 
+            "Demora Total", "Fecha de confirmacion de entrega", "Estado"
+        ]
+        
         st.dataframe(
-            df_t[["Marca", "Vendedor", "Cliente", "Chasis", "Prep a Retiro", "Facturación a Gestor", "Gestoría", "Papeles a Entrega", "Demora Total", "Fecha de confirmacion de entrega", "Estado"]], 
+            df_t[columnas_detalle], 
             use_container_width=True, 
             hide_index=True,
             column_config={
-                "Prep a Retiro": st.column_config.NumberColumn(help="Cálculo: [Fecha que el Gestor Retira Doc] - [Fecha de Pedido de Preparacion]"),
                 "Facturación a Gestor": st.column_config.NumberColumn(help="Cálculo: [Fecha que el Gestor Retira Doc] - [Fecha de Facturación]"),
+                "Prep a Retiro": st.column_config.NumberColumn(help="Cálculo: [Fecha que el Gestor Retira Doc] - [Fecha de Pedido de Preparacion]"),
                 "Gestoría": st.column_config.NumberColumn(help="Cálculo: [Fecha Disponibilidad Papeles] - [Fecha que el Gestor Retira Doc]"),
                 "Papeles a Entrega": st.column_config.NumberColumn(help="Cálculo: [Fecha de confirmacion de entrega] - [Fecha Disponibilidad Papeles]"),
                 "Demora Total": st.column_config.NumberColumn(help="Cálculo: [Fecha de confirmacion de entrega] - [Fecha de Facturación]"),
