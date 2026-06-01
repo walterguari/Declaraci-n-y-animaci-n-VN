@@ -10,7 +10,9 @@ st.set_page_config(page_title="Portal de Gestión VN", layout="wide", page_icon=
 
 # 2. Conexión a Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
-url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
+
+# CORRECCIÓN DE URL: Añadimos '&range=A:AZ' al final de la URL para forzar la lectura sin romper el código python
+url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153&range=A:AZ"
 
 # Columnas para la pestaña de Hand Over
 COLUMNAS_HO = [
@@ -21,8 +23,8 @@ COLUMNAS_HO = [
 ]
 
 try:
-    # --- CARGA DE DATOS (Ajustado range="A:AZ" para leer la columna AO sin pérdidas) ---
-    df_raw = conn.read(spreadsheet=url_base, range="A:AZ")
+    # --- CARGA DE DATOS (Quitamos el parámetro range de acá para solucionar el error de la captura) ---
+    df_raw = conn.read(spreadsheet=url_base)
     df_base = df_raw.dropna(how='all')
     df_base.columns = [str(c).strip() for c in df_base.columns]
 
@@ -57,13 +59,13 @@ try:
     df['TIENE_HO'] = df["Fecha de Hand over"].notna()
     df["Mes_Display"] = df["Fecha de Patentamiento"].dt.strftime('%b %Y')
     
-    # Manejo robusto de la columna ESTADO INTERNO (Columna AO)
+    # Manejo de la columna ESTADO INTERNO (Columna AO)
     col_ei = "ESTADO INTERNO"
     if col_ei in df.columns:
         df[col_ei] = df[col_ei].fillna("SIN ESTADO").astype(str).str.strip()
     else:
-        # Alerta visual en desarrollo por si cambia de nombre en el Sheets
-        st.warning(f"⚠️ No se encontró la columna exacta '{col_ei}' en el archivo. Revisá las mayúsculas/minúsculas en el Sheets.")
+        # Alerta visual por si el nombre de la columna AO difiere en algo mínimo
+        st.warning(f"⚠️ No se encontró la columna exacta '{col_ei}'. Columnas detectadas: {list(df.columns[:5])}... e incluye la AO?")
         df[col_ei] = "SIN ESTADO"
 
     # --- CREACIÓN DE PESTAÑAS ---
@@ -178,7 +180,6 @@ try:
             return dias if dias < 365 else None 
 
         if not df_t.empty:
-            # Cálculos de días hábiles
             df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha de Facturacion"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
             df_t["Prep a Retiro"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha de Pedido de Preparacion"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
             df_t["Gestoría"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha Disponibilidad Papeles")), axis=1)
