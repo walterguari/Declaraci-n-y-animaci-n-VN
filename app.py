@@ -21,8 +21,8 @@ COLUMNAS_HO = [
 ]
 
 try:
-    # --- CARGA DE DATOS ---
-    df_raw = conn.read(spreadsheet=url_base)
+    # --- CARGA DE DATOS (Ajustado range="A:AZ" para leer la columna AO sin pérdidas) ---
+    df_raw = conn.read(spreadsheet=url_base, range="A:AZ")
     df_base = df_raw.dropna(how='all')
     df_base.columns = [str(c).strip() for c in df_base.columns]
 
@@ -56,8 +56,15 @@ try:
     # Auxiliares globales
     df['TIENE_HO'] = df["Fecha de Hand over"].notna()
     df["Mes_Display"] = df["Fecha de Patentamiento"].dt.strftime('%b %Y')
+    
+    # Manejo robusto de la columna ESTADO INTERNO (Columna AO)
     col_ei = "ESTADO INTERNO"
-    df[col_ei] = df[col_ei].fillna("SIN ESTADO").astype(str).str.strip()
+    if col_ei in df.columns:
+        df[col_ei] = df[col_ei].fillna("SIN ESTADO").astype(str).str.strip()
+    else:
+        # Alerta visual en desarrollo por si cambia de nombre en el Sheets
+        st.warning(f"⚠️ No se encontró la columna exacta '{col_ei}' en el archivo. Revisá las mayúsculas/minúsculas en el Sheets.")
+        df[col_ei] = "SIN ESTADO"
 
     # --- CREACIÓN DE PESTAÑAS ---
     tab_ho, tab_tiempos, tab_graficos = st.tabs([
@@ -118,40 +125,46 @@ try:
         st.header("⏱️ Análisis de Tiempos Operativos (Días Hábiles)")
         
         v1, v2 = st.columns(2)
-        v1.metric("Cantidad de Facturaciones", f"{df['Fecha de Facturacion'].notna().sum()} Unid.")
-        v2.metric("Cantidad de Patentamientos", f"{df['Fecha de Patentamiento'].notna().sum()} Unid.")
+        v1.metric("Cantidad de Facturaciones", f"{df['Fecha de Facturacion'].notna().sum()} Unid." if 'Fecha de Facturacion' in df.columns else "0 Unid.")
+        v2.metric("Cantidad de Patentamientos", f"{df['Fecha de Patentamiento'].notna().sum()} Unid." if 'Fecha de Patentamiento' in df.columns else "0 Unid.")
 
         st.divider()
         st.subheader("📊 Evolución Mensual e Interactividad")
         st.info("💡 Hacé clic en una barra para filtrar las demoras y la tabla detallada.")
         
         g_col1, g_col2 = st.columns(2)
-        años = sorted(list(set(df["Fecha de Facturacion"].dt.year.dropna().unique()) | set(df["Fecha de Patentamiento"].dt.year.dropna().unique())), reverse=True)
+        
+        y_fact = df["Fecha de Facturacion"].dt.year.dropna().unique() if 'Fecha de Facturacion' in df.columns else []
+        y_pat = df["Fecha de Patentamiento"].dt.year.dropna().unique() if 'Fecha de Patentamiento' in df.columns else []
+        años = sorted(list(set(y_fact) | set(y_pat)), reverse=True)
+        
         año_sel = g_col1.selectbox("Año:", años if años else [2026], key="sel_año_t")
         tipo_g = g_col2.pills("Evolución Mensual de:", ["Facturación", "Patentamiento"], default="Facturación", key="pill_tipo_t")
 
         col_f = "Fecha de Facturacion" if tipo_g == "Facturación" else "Fecha de Patentamiento"
-        df_g = df[df[col_f].dt.year == año_sel].copy()
         
         mes_click = None
-        if not df_g.empty:
-            df_g["Mes_Num"] = df_g[col_f].dt.month
-            df_g["Mes_Nom"] = df_g[col_f].dt.strftime('%B')
-            resumen = df_g.groupby(["Mes_Num", "Mes_Nom"]).size().reset_index(name="Cant")
-            
-            fig_v = px.bar(resumen.sort_values("Mes_Num"), x="Mes_Nom", y="Cant", text_auto=True, 
-                           title=f"Volumen de {tipo_g} - {año_sel}", 
-                           color_discrete_sequence=['#3498db' if tipo_g == "Facturación" else '#2ecc71'],
-                           template="plotly_white")
-            
-            evento_clic = st.plotly_chart(fig_v, use_container_width=True, on_select="rerun")
-            
-            if evento_clic and "selection" in evento_clic and evento_clic["selection"]["points"]:
-                mes_click = evento_clic["selection"]["points"][0]["x"]
-                st.success(f"🔎 Auditando {tipo_g}: **{mes_click} {año_sel}**")
+        if col_f in df.columns and not df.empty:
+            df_g = df[df[col_f].dt.year == año_sel].copy()
+            if not df_g.empty:
+                df_g["Mes_Num"] = df_g[col_f].dt.month
+                df_g["Mes_Nom"] = df_g[col_f].dt.strftime('%B')
+                resumen = df_g.groupby(["Mes_Num", "Mes_Nom"]).size().reset_index(name="Cant")
+                
+                fig_v = px.bar(resumen.sort_values("Mes_Num"), x="Mes_Nom", y="Cant", text_auto=True, 
+                               title=f"Volumen de {tipo_g} - {año_sel}", 
+                               color_discrete_sequence=['#3498db' if tipo_g == "Facturación" else '#2ecc71'],
+                               template="plotly_white")
+                
+                evento_clic = st.plotly_chart(fig_v, use_container_width=True, on_select="rerun")
+                
+                if evento_clic and "selection" in evento_clic and evento_clic["selection"]["points"]:
+                    mes_click = evento_clic["selection"]["points"][0]["x"]
+                    st.success(f"🔎 Auditando {tipo_g}: **{mes_click} {año_sel}**")
 
-        df_t = df_g.copy()
-        if mes_click:
+        df_t = df[df[col_f].dt.year == año_sel].copy() if col_f in df.columns else pd.DataFrame()
+        if mes_click and not df_t.empty:
+            df_t["Mes_Nom"] = df_t[col_f].dt.strftime('%B')
             df_t = df_t[df_t["Mes_Nom"] == mes_click]
 
         hoy_np = np.datetime64(datetime.now().date())
@@ -164,53 +177,56 @@ try:
             dias = int(np.busday_count(f_inicio, f_final))
             return dias if dias < 365 else None 
 
-        # Cálculos de días hábiles
-        df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
-        df_t["Prep a Retiro"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Pedido de Preparacion"], r["Fecha que el Gestor Retira Doc"]), axis=1)
-        df_t["Gestoría"] = df_t.apply(lambda r: calc_working_days(r["Fecha que el Gestor Retira Doc"], r["Fecha Disponibilidad Papeles"]), axis=1)
-        df_t["Papeles a Entrega"] = df_t.apply(lambda r: calc_working_days(r["Fecha Disponibilidad Papeles"], r["Fecha de confirmacion de entrega"]), axis=1)
-        df_t["Demora Total"] = df_t.apply(lambda r: calc_working_days(r["Fecha de Facturacion"], r["Fecha de confirmacion de entrega"]), axis=1)
+        if not df_t.empty:
+            # Cálculos de días hábiles
+            df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha de Facturacion"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
+            df_t["Prep a Retiro"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha de Pedido de Preparacion"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
+            df_t["Gestoría"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha Disponibilidad Papeles")), axis=1)
+            df_t["Papeles a Entrega"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha Disponibilidad Papeles"), r.get("Fecha de confirmacion de entrega")), axis=1)
+            df_t["Demora Total"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha de Facturacion"), r.get("Fecha de confirmacion de entrega")), axis=1)
 
-        st.divider()
-        st.subheader(f"⏳ Promedios Días Hábiles - {mes_click if mes_click else 'Anual'}")
-        
-        mt1, mt_prep, mt2, mt3, mt4 = st.columns(5)
-        
-        OBJ1, OBJ_PREP, OBJ2, OBJ3 = 2, 1, 3, 3 
-        p1, p_prep, p2, p3, p4 = df_t["Facturación a Gestor"].mean(), df_t["Prep a Retiro"].mean(), df_t["Gestoría"].mean(), df_t["Papeles a Entrega"].mean(), df_t["Demora Total"].mean()
+            st.divider()
+            st.subheader(f"⏳ Promedios Días Hábiles - {mes_click if mes_click else 'Anual'}")
+            
+            mt1, mt_prep, mt2, mt3, mt4 = st.columns(5)
+            
+            OBJ1, OBJ_PREP, OBJ2, OBJ3 = 2, 1, 3, 3 
+            p1, p_prep, p2, p3, p4 = df_t["Facturación a Gestor"].mean(), df_t["Prep a Retiro"].mean(), df_t["Gestoría"].mean(), df_t["Papeles a Entrega"].mean(), df_t["Demora Total"].mean()
 
-        mt1.metric("Fact. a Gestor", f"{p1:.1f} d" if pd.notna(p1) else "0.0 d", 
-                   delta=f"{p1-OBJ1:.1f} vs Obj" if pd.notna(p1) else None, delta_color="inverse")
-        mt_prep.metric("Prep. a Retiro", f"{p_prep:.1f} d" if pd.notna(p_prep) else "0.0 d", 
-                   delta=f"{p_prep-OBJ_PREP:.1f} vs Obj" if pd.notna(p_prep) else None, delta_color="inverse")
-        mt2.metric("Gestión Gestor", f"{p2:.1f} d" if pd.notna(p2) else "0.0 d", 
-                   delta=f"{p2-OBJ2:.1f} vs Obj" if pd.notna(p2) else None, delta_color="inverse")
-        mt3.metric("Papeles a Entrega", f"{p3:.1f} d" if pd.notna(p3) else "0.0 d", 
-                   delta=f"{p3-OBJ3:.1f} vs Obj" if pd.notna(p3) else None, delta_color="inverse")
-        mt4.metric("Ciclo Total", f"{p4:.1f} d" if pd.notna(p4) else "0.0 d")
+            mt1.metric("Fact. a Gestor", f"{p1:.1f} d" if pd.notna(p1) else "0.0 d", 
+                       delta=f"{p1-OBJ1:.1f} vs Obj" if pd.notna(p1) else None, delta_color="inverse")
+            mt_prep.metric("Prep. a Retiro", f"{p_prep:.1f} d" if pd.notna(p_prep) else "0.0 d", 
+                       delta=f"{p_prep-OBJ_PREP:.1f} vs Obj" if pd.notna(p_prep) else None, delta_color="inverse")
+            mt2.metric("Gestión Gestor", f"{p2:.1f} d" if pd.notna(p2) else "0.0 d", 
+                       delta=f"{p2-OBJ2:.1f} vs Obj" if pd.notna(p2) else None, delta_color="inverse")
+            mt3.metric("Papeles a Entrega", f"{p3:.1f} d" if pd.notna(p3) else "0.0 d", 
+                       delta=f"{p3-OBJ3:.1f} vs Obj" if pd.notna(p3) else None, delta_color="inverse")
+            mt4.metric("Ciclo Total", f"{p4:.1f} d" if pd.notna(p4) else "0.0 d")
 
-        st.subheader(f"📋 Detalle de Unidades ({tipo_g} en el periodo)")
-        
-        # AJUSTE: Columnas ordenadas cronológicamente y agregada "Prep a Retiro" en la selección del DataFrame
-        columnas_detalle = [
-            "Marca", "Vendedor", "Cliente", "Chasis", 
-            "Facturación a Gestor", "Prep a Retiro", "Gestoría", "Papeles a Entrega", 
-            "Demora Total", "Fecha de confirmacion de entrega", "Estado"
-        ]
-        
-        st.dataframe(
-            df_t[columnas_detalle], 
-            use_container_width=True, 
-            hide_index=True,
-            column_config={
-                "Facturación a Gestor": st.column_config.NumberColumn(help="Cálculo: [Fecha que el Gestor Retira Doc] - [Fecha de Facturación]"),
-                "Prep a Retiro": st.column_config.NumberColumn(help="Cálculo: [Fecha que el Gestor Retira Doc] - [Fecha de Pedido de Preparacion]"),
-                "Gestoría": st.column_config.NumberColumn(help="Cálculo: [Fecha Disponibilidad Papeles] - [Fecha que el Gestor Retira Doc]"),
-                "Papeles a Entrega": st.column_config.NumberColumn(help="Cálculo: [Fecha de confirmacion de entrega] - [Fecha Disponibilidad Papeles]"),
-                "Demora Total": st.column_config.NumberColumn(help="Cálculo: [Fecha de confirmacion de entrega] - [Fecha de Facturación]"),
-                "Fecha de confirmacion de entrega": st.column_config.DateColumn("Fecha Entrega")
-            }
-        )
+            st.subheader(f"📋 Detalle de Unidades ({tipo_g} en el periodo)")
+            
+            columnas_detalle = [
+                "Marca", "Vendedor", "Cliente", "Chasis", 
+                "Facturación a Gestor", "Prep a Retiro", "Gestoría", "Papeles a Entrega", 
+                "Demora Total", "Fecha de confirmacion de entrega", "Estado"
+            ]
+            
+            cols_det_ok = [c for c in columnas_detalle if c in df_t.columns]
+            st.dataframe(
+                df_t[cols_det_ok], 
+                use_container_width=True, 
+                hide_index=True,
+                column_config={
+                    "Facturación a Gestor": st.column_config.NumberColumn(help="Cálculo: [Fecha que el Gestor Retira Doc] - [Fecha de Facturación]"),
+                    "Prep a Retiro": st.column_config.NumberColumn(help="Cálculo: [Fecha que el Gestor Retira Doc] - [Fecha de Pedido de Preparacion]"),
+                    "Gestoría": st.column_config.NumberColumn(help="Cálculo: [Fecha Disponibilidad Papeles] - [Fecha que el Gestor Retira Doc]"),
+                    "Papeles a Entrega": st.column_config.NumberColumn(help="Cálculo: [Fecha de confirmacion de entrega] - [Fecha Disponibilidad Papeles]"),
+                    "Demora Total": st.column_config.NumberColumn(help="Cálculo: [Fecha de confirmacion de entrega] - [Fecha de Facturación]"),
+                    "Fecha de confirmacion de entrega": st.column_config.DateColumn("Fecha Entrega")
+                }
+            )
+        else:
+            st.info("No hay datos disponibles para el periodo seleccionado.")
 
     # ---------------------------------------------------------
     # PESTAÑA 3: ANÁLISIS VISUAL
@@ -221,10 +237,12 @@ try:
             g1, g2 = st.columns(2)
             with g1:
                 st.write("### Unidades por Marca")
-                st.plotly_chart(px.bar(df["Marca"].value_counts().reset_index(), x="Marca", y="count", color="Marca", template="plotly_white"), use_container_width=True)
+                if "Marca" in df.columns:
+                    st.plotly_chart(px.bar(df["Marca"].value_counts().reset_index(), x="Marca", y="count", color="Marca", template="plotly_white"), use_container_width=True)
             with g2:
                 st.write("### Estado Interno de los Pendientes")
-                st.plotly_chart(px.pie(df[df['TIENE_HO']==False], names="ESTADO INTERNO", hole=0.4), use_container_width=True)
+                if col_ei in df.columns:
+                    st.plotly_chart(px.pie(df[df['TIENE_HO']==False], names=col_ei, hole=0.4), use_container_width=True)
 
 except Exception as e:
     st.error(f"Error al cargar el portal: {e}")
