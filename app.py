@@ -11,8 +11,8 @@ st.set_page_config(page_title="Portal de Gestión VN", layout="wide", page_icon=
 # 2. Conexión a Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# CORRECCIÓN DE URL: Añadimos '&range=A:AZ' al final de la URL para forzar la lectura sin romper el código python
-url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153&range=A:AZ"
+# URL Limpia original (Streamlit-gsheets maneja la lectura completa internamente)
+url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
 
 # Columnas para la pestaña de Hand Over
 COLUMNAS_HO = [
@@ -23,10 +23,14 @@ COLUMNAS_HO = [
 ]
 
 try:
-    # --- CARGA DE DATOS (Quitamos el parámetro range de acá para solucionar el error de la captura) ---
+    # --- CARGA DE DATOS ---
     df_raw = conn.read(spreadsheet=url_base)
     df_base = df_raw.dropna(how='all')
-    df_base.columns = [str(c).strip() for c in df_base.columns]
+    
+    # NORMALIZACIÓN AVANZADA: Reemplazamos saltos de línea (\n, \r) y espacios dobles en los nombres de las columnas
+    df_base.columns = [str(c).replace('\n', ' ').replace('\r', ' ').strip() for c in df_base.columns]
+    # Forzamos a reemplazar múltiples espacios consecutivos por uno solo por si acaso
+    df_base.columns = [" ".join(c.split()) for c in df_base.columns]
 
     # --- SIDEBAR ---
     st.sidebar.header("Filtros Globales")
@@ -59,14 +63,20 @@ try:
     df['TIENE_HO'] = df["Fecha de Hand over"].notna()
     df["Mes_Display"] = df["Fecha de Patentamiento"].dt.strftime('%b %Y')
     
-    # Manejo de la columna ESTADO INTERNO (Columna AO)
+    # Nombre estandarizado de la columna tras la limpieza de saltos de línea
     col_ei = "ESTADO INTERNO"
+    
     if col_ei in df.columns:
         df[col_ei] = df[col_ei].fillna("SIN ESTADO").astype(str).str.strip()
     else:
-        # Alerta visual por si el nombre de la columna AO difiere en algo mínimo
-        st.warning(f"⚠️ No se encontró la columna exacta '{col_ei}'. Columnas detectadas: {list(df.columns[:5])}... e incluye la AO?")
-        df[col_ei] = "SIN ESTADO"
+        # Si aun así no coincide, intentamos buscar una columna que contenga las palabras
+        columna_encontrada = [c for c in df.columns if "ESTADO" in c.upper() and "INTERNO" in c.upper()]
+        if columna_encontrada:
+            col_ei = columna_encontrada[0]
+            df[col_ei] = df[col_ei].fillna("SIN ESTADO").astype(str).str.strip()
+        else:
+            st.error(f"❌ No se detecta la columna AO. Columnas disponibles: {list(df.columns)}")
+            df[col_ei] = "SIN ESTADO"
 
     # --- CREACIÓN DE PESTAÑAS ---
     tab_ho, tab_tiempos, tab_graficos = st.tabs([
@@ -85,13 +95,16 @@ try:
         opciones_meses = meses_pendientes["Mes_Display"].unique().tolist()
         mes_sel = st.pills("Meses detectados:", ["Todos"] + opciones_meses, default="Todos", key="p_mes")
 
-        st.write("### 🏷️ 2. Filtrar por Estado Interno (Solo pendientes)")
-        df_temp_ei = df[~df['TIENE_HO']].copy()
+        st.write("### 🏷️ 2. Filtrar por Estado Interno")
+        
+        # CAMBIO CLAVE: Buscamos los estados en TODO el dataframe filtrado por mes para asegurar que aparezcan
+        df_temp_ei = df.copy()
         if mes_sel != "Todos":
             df_temp_ei = df_temp_ei[df_temp_ei["Mes_Display"] == mes_sel]
         
+        # Trae todas las categorías válidas (Promotor, Reclamo, Buzón de voz, etc.)
         est_disponibles = sorted([e for e in df_temp_ei[col_ei].unique() if e.upper() not in ["NAN", "", "NONE"]])
-        ei_sel = st.pills("Categorías con pendientes:", ["Todos"] + est_disponibles, default="Todos", key="p_ei")
+        ei_sel = st.pills("Categorías detectadas en el periodo:", ["Todos"] + est_disponibles, default="Todos", key="p_ei")
 
         df_f_ho = df.copy()
         if mes_sel != "Todos": df_f_ho = df_f_ho[df_f_ho["Mes_Display"] == mes_sel]
@@ -117,6 +130,8 @@ try:
             mask = df_final.apply(lambda row: row.astype(str).str.contains(busq, case=False).any(), axis=1)
             df_final = df_final[mask]
 
+        # Aseguramos que la columna mapeada se muestre con el nombre limpio en la tabla
+        df_final = df_final.rename(columns={col_ei: "ESTADO INTERNO"})
         cols_ok = [c for c in COLUMNAS_HO if c in df_final.columns]
         st.dataframe(df_final[cols_ok], use_container_width=True, hide_index=True)
 
