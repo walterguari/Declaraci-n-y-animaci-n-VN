@@ -22,9 +22,8 @@ COLUMNAS_HO = [
     "Estado", "Fecha de confirmacion de entrega", "ESTADO INTERNO", "Fecha de Hand over"
 ]
 
-# Columnas exactas solicitadas para la Tabla de Animación (Sin Chasis)
+# Columnas exactas solicitadas para la Tabla de Animación (Sin Chasis y Sin Marca)
 COLUMNAS_ANIMACION = [
-    "Marca", 
     "Canal de Venta", 
     "Vendedor", 
     "Cliente", 
@@ -152,7 +151,6 @@ try:
         # 1. Búsqueda y normalización de la columna Estado de la marca
         col_em = "Estado de la marca"
         if col_em not in df.columns:
-            # Intento de búsqueda tolerante si cambia un espacio o mayúscula
             col_encontrada = [c for c in df.columns if c.upper().strip() == "ESTADO DE LA MARCA"]
             if col_encontrada:
                 col_em = col_encontrada[0]
@@ -162,22 +160,19 @@ try:
         df_anim = pd.DataFrame()
         
         if col_em in df.columns:
-            # Filtro estricto para casos en espera (ignorando mayúsculas/minúsculas y espacios extra)
+            # Filtro estricto para casos en espera
             df_anim = df[df[col_em].astype(str).str.strip().str.upper() == "EN ESPERA"].copy()
             
             # --- SECCIÓN DE LOS 3 FILTROS SOLICITADOS ---
             st.divider()
             f_col1, f_col2, f_col3 = st.columns(3)
             
-            # Filtro Marca (pestaña animación)
             marcas_anim = sorted(df_anim["Marca"].dropna().unique()) if "Marca" in df_anim.columns else []
             sel_marca = f_col1.multiselect("📌 Filtrar por Marca", options=marcas_anim, key="anim_marca")
             
-            # Filtro Canal de Venta (pestaña animación)
             canales_anim = sorted(df_anim["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df_anim.columns else []
             sel_canal = f_col2.multiselect("📌 Filtrar por Canal de Venta", options=canales_anim, key="anim_canal")
             
-            # Filtro Vendedor (pestaña animación)
             vendedores_anim = sorted(df_anim["Vendedor"].dropna().unique()) if "Vendedor" in df_anim.columns else []
             sel_vend = f_col3.multiselect("📌 Filtrar por Vendedor", options=vendedores_anim, key="anim_vend")
             
@@ -200,33 +195,46 @@ try:
                     mask_anim = df_anim.apply(lambda row: row.astype(str).str.contains(busq_anim, case=False).any(), axis=1)
                     df_anim = df_anim[mask_anim]
             
-            # --- TABLA DE GESTIÓN LIMPIA (ST.TABLE CON ANCHO DE COMENTARIOS TRIPLICADO) ---
+            # --- PREPARACIÓN DE TABLA SIN MARCA + COLOREADO POR CANAL ---
             cols_anim_ok = [c for c in COLUMNAS_ANIMACION if c in df_anim.columns]
             
-            # Limpiamos valores nulos por "-" para que se vea prolijo
-            df_tabla = df_anim[cols_anim_ok].fillna("-").copy()
+            # Mantenemos "Marca" temporalmente en el dataframe base para saber qué color aplicar
+            cols_con_marca = ["Marca"] + [c for c in cols_anim_ok if c != "Marca"]
+            df_tabla = df_anim[cols_con_marca].fillna("-").copy()
             
-            # Inyección de CSS para triplicar el ancho de la columna 10 (Comentario de la Encuesta interna)
-            st.markdown(
-                """
-                <style>
-                    /* Fuerza el ancho de las columnas de comentarios dentro de st.table */
-                    div[data-testid="stTable"] table th:nth-child(11), 
-                    div[data-testid="stTable"] table td:nth-child(11) {
-                        min-width: 400px !important;
-                        max-width: 500px !important;
-                    }
-                    div[data-testid="stTable"] table th:nth-child(9), 
-                    div[data-testid="stTable"] table td:nth-child(9) {
-                        min-width: 220px !important;
-                    }
-                </style>
-                """,
-                unsafe_allow_html=True
+            # Función para pintar la celda de "Canal de Venta" según el valor de la marca en esa fila
+            def resaltar_canal(row):
+                estilos = [''] * len(row)
+                if "Canal de Venta" in row.index and "Marca" in row.index:
+                    idx_canal = row.index.get_loc("Canal de Venta")
+                    marca = str(row["Marca"]).upper()
+                    if "PEUGEOT" in marca:
+                        # Azul clarito
+                        estilos[idx_canal] = 'background-color: #d0e1fd; color: #0c326f; font-weight: bold;'
+                    elif "CITRO" in marca: # Cubre Citroen o Citroën
+                        # Naranja clarito
+                        estilos[idx_canal] = 'background-color: #fde2c4; color: #78350f; font-weight: bold;'
+                return estilos
+
+            # Aplicamos el estilo y luego ocultamos la columna Marca de la vista final
+            df_estilizado = df_tabla.style.apply(resaltar_canal, axis=1).hide(axis="index").hide(subset=["Marca"], axis="columns")
+            
+            # Mostramos con st.dataframe para recuperar los botones de descarga y pantalla completa
+            st.dataframe(
+                df_estilizado,
+                use_container_width=True,
+                height=450,
+                column_config={
+                    "Comentario Enc. Temp.": st.column_config.TextColumn(
+                        "Comentario Enc. Temp.",
+                        width="medium"
+                    ),
+                    "Comentario de la Encuesta interna": st.column_config.TextColumn(
+                        "Comentario Encuesta Interna",
+                        width="large"
+                    )
+                }
             )
-            
-            # st.table estira automáticamente el alto de cada fila y respeta los anchos ampliados
-            st.table(df_tabla)
             
             # Alerta si hay columnas pedidas que no existan en el sheet
             cols_faltantes = set(COLUMNAS_ANIMACION) - set(cols_anim_ok)
