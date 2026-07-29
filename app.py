@@ -22,7 +22,7 @@ COLUMNAS_HO = [
     "Estado", "Fecha de confirmacion de entrega", "ESTADO INTERNO", "Fecha de Hand over"
 ]
 
-# Columnas exactas solicitadas para la Tabla de Animación
+# Columnas exactas solicitadas para la Tabla de Animación (Sin Chasis)
 COLUMNAS_ANIMACION = [
     "Marca", 
     "Canal de Venta", 
@@ -30,7 +30,6 @@ COLUMNAS_ANIMACION = [
     "Cliente", 
     "Teléfono", 
     "E-mail", 
-    "Chasis", 
     "Encuesta Temprana", 
     "Comentario Enc. Temp.", 
     "EI - Reco", 
@@ -196,18 +195,28 @@ try:
             m_col1.metric("🔔 Total a Animar", f"{len(df_anim)} clientes")
             
             with m_col2:
-                busq_anim = st.text_input("🔍 Búsqueda rápida por Cliente, Chasis, Teléfono o E-mail:", key="busq_anim")
+                busq_anim = st.text_input("🔍 Búsqueda rápida por Cliente, Teléfono o E-mail:", key="busq_anim")
                 if busq_anim:
                     mask_anim = df_anim.apply(lambda row: row.astype(str).str.contains(busq_anim, case=False).any(), axis=1)
                     df_anim = df_anim[mask_anim]
             
-            # --- TABLA DE GESTIÓN LIMPIA (COLUMNAS EXACTAS) ---
+            # --- TABLA DE GESTIÓN LIMPIA (COLUMNAS EXACTAS + AJUSTE DE TEXTO) ---
             cols_anim_ok = [c for c in COLUMNAS_ANIMACION if c in df_anim.columns]
             
             st.dataframe(
                 df_anim[cols_anim_ok],
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
+                column_config={
+                    "Comentario Enc. Temp.": st.column_config.TextColumn(
+                        "Comentario Enc. Temp.",
+                        width="medium"
+                    ),
+                    "Comentario de la Encuesta interna": st.column_config.TextColumn(
+                        "Comentario Encuesta Interna",
+                        width="large"
+                    )
+                }
             )
             
             # Alerta si hay columnas pedidas que no existan en el sheet
