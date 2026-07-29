@@ -200,13 +200,32 @@ try:
                     mask_anim = df_anim.apply(lambda row: row.astype(str).str.contains(busq_anim, case=False).any(), axis=1)
                     df_anim = df_anim[mask_anim]
             
-            # --- TABLA DE GESTIÓN LIMPIA (MULTILÍNEA NATIVA CON ST.TABLE) ---
+            # --- TABLA DE GESTIÓN LIMPIA (ST.TABLE CON ANCHO DE COMENTARIOS TRIPLICADO) ---
             cols_anim_ok = [c for c in COLUMNAS_ANIMACION if c in df_anim.columns]
             
             # Limpiamos valores nulos por "-" para que se vea prolijo
             df_tabla = df_anim[cols_anim_ok].fillna("-").copy()
             
-            # st.table estira automáticamente el alto de cada fila para leer todo el comentario sin cortar nada
+            # Inyección de CSS para triplicar el ancho de la columna 10 (Comentario de la Encuesta interna)
+            st.markdown(
+                """
+                <style>
+                    /* Fuerza el ancho de las columnas de comentarios dentro de st.table */
+                    div[data-testid="stTable"] table th:nth-child(11), 
+                    div[data-testid="stTable"] table td:nth-child(11) {
+                        min-width: 400px !important;
+                        max-width: 500px !important;
+                    }
+                    div[data-testid="stTable"] table th:nth-child(9), 
+                    div[data-testid="stTable"] table td:nth-child(9) {
+                        min-width: 220px !important;
+                    }
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
+            
+            # st.table estira automáticamente el alto de cada fila y respeta los anchos ampliados
             st.table(df_tabla)
             
             # Alerta si hay columnas pedidas que no existan en el sheet
