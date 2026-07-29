@@ -200,71 +200,14 @@ try:
                     mask_anim = df_anim.apply(lambda row: row.astype(str).str.contains(busq_anim, case=False).any(), axis=1)
                     df_anim = df_anim[mask_anim]
             
-            # --- TABLA DE GESTIÓN LIMPIA (OPCIÓN 1: HTML MULTILÍNEA) ---
+            # --- TABLA DE GESTIÓN LIMPIA (MULTILÍNEA NATIVA CON ST.TABLE) ---
             cols_anim_ok = [c for c in COLUMNAS_ANIMACION if c in df_anim.columns]
-            df_tabla = df_anim[cols_anim_ok].copy()
             
-            # Reemplazamos valores vacíos (NaN/None) por "-" para una lectura más limpia
-            df_tabla = df_tabla.fillna("-")
+            # Limpiamos valores nulos por "-" para que se vea prolijo
+            df_tabla = df_anim[cols_anim_ok].fillna("-").copy()
             
-            # 1. Generamos la estructura HTML de la tabla de forma nativa
-            html_table = df_tabla.to_html(
-                index=False,
-                classes="table_wrap",
-                escape=True
-            )
-            
-            # 2. Inyectamos estilos CSS para forzar el ajuste del texto (word-wrap) y colores limpios
-            st.markdown(
-                f"""
-                <style>
-                    .table-container {{
-                        max-height: 600px;
-                        overflow: auto;
-                        border: 1px solid #e0e0e0;
-                        border-radius: 8px;
-                        margin-top: 10px;
-                    }}
-                    table.table_wrap {{
-                        width: 100%;
-                        border-collapse: collapse;
-                        font-family: sans-serif;
-                        font-size: 13px;
-                    }}
-                    table.table_wrap th {{
-                        background-color: #f8f9fa;
-                        color: #333333;
-                        text-align: left;
-                        padding: 10px 8px;
-                        border-bottom: 2px solid #cccccc;
-                        position: sticky;
-                        top: 0;
-                        z-index: 1;
-                    }}
-                    table.table_wrap td {{
-                        padding: 8px;
-                        border-bottom: 1px solid #eeeeee;
-                        vertical-align: top;
-                        white-space: normal !important; /* Fuerza a bajar de renglón */
-                        word-wrap: break-word;          /* Rompe palabras muy largas si hace falta */
-                    }}
-                    /* Anchos personalizados para dar espacio a los comentarios largos */
-                    table.table_wrap td:nth-child(8), table.table_wrap th:nth-child(8) {{
-                        min-width: 180px;
-                    }}
-                    table.table_wrap td:nth-child(10), table.table_wrap th:nth-child(10) {{
-                        min-width: 280px;
-                    }}
-                    table.table_wrap tr:hover {{
-                        background-color: #f1f5f9;
-                    }}
-                </style>
-                <div class="table-container">
-                    {html_table}
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            # st.table estira automáticamente el alto de cada fila para leer todo el comentario sin cortar nada
+            st.table(df_tabla)
             
             # Alerta si hay columnas pedidas que no existan en el sheet
             cols_faltantes = set(COLUMNAS_ANIMACION) - set(cols_anim_ok)
