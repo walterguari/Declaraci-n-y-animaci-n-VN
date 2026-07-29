@@ -22,61 +22,31 @@ COLUMNAS_HO = [
     "Estado", "Fecha de confirmacion de entrega", "ESTADO INTERNO", "Fecha de Hand over"
 ]
 
+# Columnas exactas solicitadas para la Tabla de Animación
+COLUMNAS_ANIMACION = [
+    "Marca", 
+    "Canal de Venta", 
+    "Vendedor", 
+    "Cliente", 
+    "Teléfono", 
+    "E-mail", 
+    "Chasis", 
+    "Encuesta Temprana", 
+    "Comentario Enc. Temp.", 
+    "EI - Reco", 
+    "Comentario de la Encuesta interna"
+]
+
 try:
     # --- CARGA DE DATOS ---
     df_raw = conn.read(spreadsheet=url_base)
     df_base = df_raw.dropna(how='all')
     
-    # NORMALIZACIÓN AVANZADA
+    # NORMALIZACIÓN AVANZADA: Limpieza de nombres de columnas
     df_base.columns = [str(c).replace('\n', ' ').replace('\r', ' ').strip() for c in df_base.columns]
     df_base.columns = [" ".join(c.split()) for c in df_base.columns]
 
-    # --- PROCESAMIENTO GLOBAL DE FECHAS ---
-    cols_a_fecha = [
-        "Fecha de Patentamiento", "Fecha de Hand over", "Fecha de Facturacion",
-        "Fecha que el Gestor Retira Doc", "Fecha Disponibilidad Papeles",
-        "Fecha de confirmacion de entrega", "Fecha de Pedido de Preparacion" 
-    ]
-    for c in cols_a_fecha:
-        if c in df_base.columns:
-            df_base[c] = pd.to_datetime(df_base[c], errors='coerce')
-
-    # Auxiliares globales
-    df_base['TIENE_HO'] = df_base["Fecha de Hand over"].notna()
-    df_base["Mes_Display"] = df_base["Fecha de Patentamiento"].dt.strftime('%b %Y')
-    
-    # Estandarización de ESTADO INTERNO
-    col_ei = "ESTADO INTERNO"
-    if col_ei in df_base.columns:
-        df_base[col_ei] = df_base[col_ei].fillna("SIN ESTADO").astype(str).str.strip()
-    else:
-        columna_encontrada = [c for c in df_base.columns if "ESTADO" in c.upper() and "INTERNO" in c.upper()]
-        if columna_encontrada:
-            col_ei = columna_encontrada[0]
-            df_base[col_ei] = df_base[col_ei].fillna("SIN ESTADO").astype(str).str.strip()
-        else:
-            st.error(f"❌ No se detecta la columna ESTADO INTERNO. Columnas disponibles: {list(df_base.columns)}")
-            df_base[col_ei] = "SIN ESTADO"
-
-    # --- LÓGICA DE CLASIFICACIÓN: A ANIMAR vs PARA DECLARAR ---
-    def clasificar_accion(row):
-        # 1. Si ya se declaró/realizó el Hand Over, se da por cerrado el ciclo activo
-        if row['TIENE_HO']:
-            return "Cerrado / Declarado"
-        
-        estado = str(row.get('Estado', '')).upper()
-        pat_listo = pd.notna(row.get('Fecha de Patentamiento'))
-        
-        # 2. PARA DECLARAR: Vehículos entregados y patentados pendientes de declarar/cierre oficial
-        if 'ENTREGADO' in estado and pat_listo:
-            return "Para Declarar"
-        
-        # 3. A ANIMAR: En proceso de entrega, documentación pendiente o en gestión operativa
-        return "A Animar"
-
-    df_base["ACCIÓN OPERATIVA"] = df_base.apply(clasificar_accion, axis=1)
-
-    # --- SIDEBAR ---
+    # --- SIDEBAR: FILTROS GLOBALES ---
     st.sidebar.header("Filtros Globales")
     
     marcas = sorted(df_base["Marca"].dropna().unique()) if "Marca" in df_base.columns else []
@@ -85,28 +55,50 @@ try:
     canales = sorted(df_base["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df_base.columns else []
     filtro_canal = st.sidebar.multiselect("Canal de Venta", options=canales)
 
-    acciones_ops = sorted(df_base["ACCIÓN OPERATIVA"].unique())
-    filtro_accion = st.sidebar.multiselect("Acción Requerida", options=acciones_ops, default=None)
-
     # --- APLICACIÓN DEL FILTRO GLOBAL ---
     df = df_base.copy()
     if filtro_marca:
         df = df[df["Marca"].isin(filtro_marca)]
     if filtro_canal:
         df = df[df["Canal de Venta"].isin(filtro_canal)]
-    if filtro_accion:
-        df = df[df["ACCIÓN OPERATIVA"].isin(filtro_accion)]
 
-    # --- CREACIÓN DE PESTAÑAS (Agregada Pestaña 4 de Animación y Declaración) ---
-    tab_ho, tab_acciones, tab_tiempos, tab_graficos = st.tabs([
-        "🛡️ Gestión de Hand Over", 
-        "📣 Animación y Declaración",
+    # --- PROCESAMIENTO GLOBAL DE FECHAS ---
+    cols_a_fecha = [
+        "Fecha de Patentamiento", "Fecha de Hand over", "Fecha de Facturacion",
+        "Fecha que el Gestor Retira Doc", "Fecha Disponibilidad Papeles",
+        "Fecha de confirmacion de entrega", "Fecha de Pedido de Preparacion" 
+    ]
+    for c in cols_a_fecha:
+        if c in df.columns:
+            df[c] = pd.to_datetime(df[c], errors='coerce')
+
+    # Auxiliares globales
+    df['TIENE_HO'] = df["Fecha de Hand over"].notna()
+    df["Mes_Display"] = df["Fecha de Patentamiento"].dt.strftime('%b %Y')
+    
+    # Estandarización de ESTADO INTERNO
+    col_ei = "ESTADO INTERNO"
+    if col_ei in df.columns:
+        df[col_ei] = df[col_ei].fillna("SIN ESTADO").astype(str).str.strip()
+    else:
+        columna_encontrada = [c for c in df.columns if "ESTADO" in c.upper() and "INTERNO" in c.upper()]
+        if columna_encontrada:
+            col_ei = columna_encontrada[0]
+            df[col_ei] = df[col_ei].fillna("SIN ESTADO").astype(str).str.strip()
+        else:
+            st.error(f"❌ No se detecta la columna ESTADO INTERNO. Columnas disponibles: {list(df.columns)}")
+            df[col_ei] = "SIN ESTADO"
+
+    # --- CREACIÓN DE PESTAÑAS ---
+    tab_ho, tab_animacion, tab_tiempos, tab_graficos = st.tabs([
+        "🛡️ Gestión de Hand Over y Garantías", 
+        "📣 Animación de Encuestas", 
         "⏱️ Análisis de Tiempos", 
         "📈 Análisis Visual"
     ])
 
     # ---------------------------------------------------------
-    # PESTAÑA 1: GESTIÓN DE HAND OVER Y GARANTÍAS
+    # PESTAÑA 1: GESTIÓN DE HAND OVER
     # ---------------------------------------------------------
     with tab_ho:
         st.header("Gestión de Hand Over y Garantías")
@@ -152,71 +144,76 @@ try:
         st.dataframe(df_final[cols_ok], use_container_width=True, hide_index=True)
 
     # ---------------------------------------------------------
-    # PESTAÑA 2: ANIMACIÓN Y DECLARACIÓN (NUEVA PESTAÑA OPERATIVA)
+    # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS (EN ESPERA)
     # ---------------------------------------------------------
-    with tab_acciones:
-        st.header("📣 Panel Operativo: Clientes a Animar vs. Para Declarar")
-        st.write("Seguimiento segmentado para impulsar respuestas y gestionar cierres/declaraciones oficiales.")
+    with tab_animacion:
+        st.header("📣 Animación de Encuesta de la Marca")
+        st.write("Listado de clientes con estado **En Espera** para seguimiento y animación de respuestas.")
         
-        # Resumen Rápido
-        tot_animar = len(df[df["ACCIÓN OPERATIVA"] == "A Animar"])
-        tot_declarar = len(df[df["ACCIÓN OPERATIVA"] == "Para Declarar"])
-        tot_cerrados = len(df[df["ACCIÓN OPERATIVA"] == "Cerrado / Declarado"])
-
-        m1, m2, m3 = st.columns(3)
-        m1.metric("🟢 A Animar (Seguimiento / Contacto)", f"{tot_animar} casos")
-        m2.metric("🔵 Para Declarar (Listos para Oficializar)", f"{tot_declarar} casos")
-        m3.metric("✅ Cerrados / Declarados", f"{tot_cerrados} casos")
-
-        st.divider()
-
-        # Selector de Enfoque Operativo
-        enfoque = st.radio(
-            "📌 Seleccionar frente de gestión:",
-            ["Todos los pendientes", "🟢 Solo A Animar", "🔵 Solo Para Declarar"],
-            horizontal=True
-        )
-
-        df_acc = df.copy()
-        if enfoque == "🟢 Solo A Animar":
-            df_acc = df_acc[df_acc["ACCIÓN OPERATIVA"] == "A Animar"]
-        elif enfoque == "🔵 Solo Para Declarar":
-            df_acc = df_acc[df_acc["ACCIÓN OPERATIVA"] == "Para Declarar"]
-        else:
-            df_acc = df_acc[df_acc["ACCIÓN OPERATIVA"].isin(["A Animar", "Para Declarar"])]
-
-        busq_acc = st.text_input("🔍 Buscar cliente, vendedor o chasis:", key="busq_acc")
-        if busq_acc:
-            mask_acc = df_acc.apply(lambda row: row.astype(str).str.contains(busq_acc, case=False).any(), axis=1)
-            df_acc = df_acc[mask_acc]
-
-        cols_acciones = [
-            "ACCIÓN OPERATIVA", "Marca", "Cliente", "Teléfono", "Vendedor",
-            "Chasis", "Estado", "ESTADO INTERNO", "Fecha de Patentamiento", "Fecha de confirmacion de entrega"
-        ]
-        cols_acciones_ok = [c for c in cols_acciones if c in df_acc.columns]
-
-        st.dataframe(
-            df_acc[cols_acciones_ok],
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "ACCIÓN OPERATIVA": st.column_config.TextColumn("Frente de Acción", width="medium"),
-                "Fecha de Patentamiento": st.column_config.DateColumn("Patentado"),
-                "Fecha de confirmacion de entrega": st.column_config.DateColumn("Entrega Conf.")
-            }
-        )
-
-        # Gráfico complementario de gestión por vendedor
-        if not df_acc.empty and "Vendedor" in df_acc.columns:
-            st.write("### 📊 Carga de trabajo pendiente por Vendedor")
-            resumen_vend = df_acc.groupby(["Vendedor", "ACCIÓN OPERATIVA"]).size().reset_index(name="Cantidad")
-            fig_vend = px.bar(
-                resumen_vend, x="Vendedor", y="Cantidad", color="ACCIÓN OPERATIVA",
-                color_discrete_map={"A Animar": "#2ecc71", "Para Declarar": "#3498db"},
-                title="Distribución de casos pendientes por Vendedor", template="plotly_white", text_auto=True
+        # 1. Búsqueda y normalización de la columna Estado de la marca
+        col_em = "Estado de la marca"
+        if col_em not in df.columns:
+            # Intento de búsqueda tolerante si cambia un espacio o mayúscula
+            col_encontrada = [c for c in df.columns if c.upper().strip() == "ESTADO DE LA MARCA"]
+            if col_encontrada:
+                col_em = col_encontrada[0]
+            else:
+                st.error("❌ No se encontró la columna 'Estado de la marca' en la hoja de Google Sheets.")
+        
+        df_anim = pd.DataFrame()
+        
+        if col_em in df.columns:
+            # Filtro estricto para casos en espera (ignorando mayúsculas/minúsculas y espacios extra)
+            df_anim = df[df[col_em].astype(str).str.strip().str.upper() == "EN ESPERA"].copy()
+            
+            # --- SECCIÓN DE LOS 3 FILTROS SOLICITADOS ---
+            st.divider()
+            f_col1, f_col2, f_col3 = st.columns(3)
+            
+            # Filtro Marca (pestaña animación)
+            marcas_anim = sorted(df_anim["Marca"].dropna().unique()) if "Marca" in df_anim.columns else []
+            sel_marca = f_col1.multiselect("📌 Filtrar por Marca", options=marcas_anim, key="anim_marca")
+            
+            # Filtro Canal de Venta (pestaña animación)
+            canales_anim = sorted(df_anim["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df_anim.columns else []
+            sel_canal = f_col2.multiselect("📌 Filtrar por Canal de Venta", options=canales_anim, key="anim_canal")
+            
+            # Filtro Vendedor (pestaña animación)
+            vendedores_anim = sorted(df_anim["Vendedor"].dropna().unique()) if "Vendedor" in df_anim.columns else []
+            sel_vend = f_col3.multiselect("📌 Filtrar por Vendedor", options=vendedores_anim, key="anim_vend")
+            
+            # Aplicamos los filtros seleccionados
+            if sel_marca:
+                df_anim = df_anim[df_anim["Marca"].isin(sel_marca)]
+            if sel_canal:
+                df_anim = df_anim[df_anim["Canal de Venta"].isin(sel_canal)]
+            if sel_vend:
+                df_anim = df_anim[df_anim["Vendedor"].isin(sel_vend)]
+                
+            # --- MÉTRICA DE RESULTADOS Y BUSCADOR RÁPIDO ---
+            st.divider()
+            m_col1, m_col2 = st.columns([1, 3])
+            m_col1.metric("🔔 Total a Animar", f"{len(df_anim)} clientes")
+            
+            with m_col2:
+                busq_anim = st.text_input("🔍 Búsqueda rápida por Cliente, Chasis, Teléfono o E-mail:", key="busq_anim")
+                if busq_anim:
+                    mask_anim = df_anim.apply(lambda row: row.astype(str).str.contains(busq_anim, case=False).any(), axis=1)
+                    df_anim = df_anim[mask_anim]
+            
+            # --- TABLA DE GESTIÓN LIMPIA (COLUMNAS EXACTAS) ---
+            cols_anim_ok = [c for c in COLUMNAS_ANIMACION if c in df_anim.columns]
+            
+            st.dataframe(
+                df_anim[cols_anim_ok],
+                use_container_width=True,
+                hide_index=True
             )
-            st.plotly_chart(fig_vend, use_container_width=True)
+            
+            # Alerta si hay columnas pedidas que no existan en el sheet
+            cols_faltantes = set(COLUMNAS_ANIMACION) - set(cols_anim_ok)
+            if cols_faltantes:
+                st.caption(f"⚠️ Nota: Las siguientes columnas solicitadas no fueron encontradas con ese nombre exacto en el archivo original: {', '.join(cols_faltantes)}")
 
     # ---------------------------------------------------------
     # PESTAÑA 3: ANÁLISIS DE TIEMPOS
@@ -342,12 +339,6 @@ try:
                 st.write("### Estado Interno de los Pendientes")
                 if col_ei in df.columns:
                     st.plotly_chart(px.pie(df[df['TIENE_HO']==False], names=col_ei, hole=0.4), use_container_width=True)
-            
-            # Nuevo gráfico opcional para el estado operativo en general
-            st.write("### Distribución Global de Acción Operativa")
-            st.plotly_chart(px.pie(df, names="ACCIÓN OPERATIVA", color="ACCIÓN OPERATIVA",
-                                   color_discrete_map={"A Animar": "#2ecc71", "Para Declarar": "#3498db", "Cerrado / Declarado": "#95a5a6"},
-                                   hole=0.4), use_container_width=True)
 
 except Exception as e:
     st.error(f"Error al cargar el portal: {e}")
