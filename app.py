@@ -106,49 +106,121 @@ try:
     # ---------------------------------------------------------
     # PESTAÑA 1: GESTIÓN DE HAND OVER
     # ---------------------------------------------------------
+    # ---------------------------------------------------------
+    # PESTAÑA 1: GESTIÓN DE HAND OVER (OPCIÓN 1 vs OPCIÓN 2)
+    # ---------------------------------------------------------
     with tab_ho:
-        st.header("Gestión de Hand Over y Garantías")
-        st.write("### 📅 1. Seleccioná el Mes con Pendientes")
-        meses_pendientes = df[~df['TIENE_HO']].dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
-        opciones_meses = meses_pendientes["Mes_Display"].unique().tolist()
-        mes_sel = st.pills("Meses detectados:", ["Todos"] + opciones_meses, default="Todos", key="p_mes")
-
-        st.write("### 🏷️ 2. Filtrar por Estado Interno")
-        df_temp_ei = df.copy()
-        if mes_sel != "Todos":
-            df_temp_ei = df_temp_ei[df_temp_ei["Mes_Display"] == mes_sel]
+        st.header("🛡️ Gestión de Hand Over y Garantías")
         
-        est_disponibles = sorted([e for e in df_temp_ei[col_ei].unique() if e.upper() not in ["NAN", "", "NONE"]])
-        ei_sel = st.pills("Categorías detectadas en el periodo:", ["Todos"] + est_disponibles, default="Todos", key="p_ei")
-
-        df_f_ho = df.copy()
-        if mes_sel != "Todos": df_f_ho = df_f_ho[df_f_ho["Mes_Display"] == mes_sel]
-        if ei_sel != "Todos": df_f_ho = df_f_ho[df_f_ho[col_ei] == ei_sel]
-
-        st.divider()
-        c1, c2, c3, c4 = st.columns(4)
-        pat_v = df_f_ho[df_f_ho["Fecha de Patentamiento"].notna()]
-        ent_v = df_f_ho[df_f_ho["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
-        fal_v = pat_v[~pat_v['TIENE_HO']]
+        # NORMALIZACIÓN INTERNA DE CATEGORÍAS (Para evitar duplicados tipo PROMOTOR / Promotor)
+        df_ho = df.copy()
+        if col_ei in df_ho.columns:
+            df_ho[col_ei] = df_ho[col_ei].astype(str).str.strip().str.upper()
+            df_ho[col_ei] = df_ho[col_ei].replace({"NAN": "SIN ESTADO", "NONE": "SIN ESTADO", "": "SIN ESTADO"})
         
-        c1.metric("Patentados", len(pat_v))
-        c2.metric("Entregados", len(ent_v))
-        c3.metric("Faltan Hand Over", len(fal_v), delta_color="inverse")
-        eficacia = (len(pat_v[pat_v['TIENE_HO']]) / len(pat_v) * 100) if len(pat_v) > 0 else 0
-        c4.metric("% Eficacia", f"{eficacia:.1f}%")
-
-        modo = st.radio("Filtro tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True)
-        df_final = fal_v if modo == "Solo Pendientes ⚠️" else df_f_ho
+        # Sub-pestañas para comparar diseños
+        sub_exec, sub_semaforo = st.tabs([
+            "📊 Opción 1: Dashboard Ejecutivo", 
+            "🚦 Opción 2: Semáforo de Auditoría"
+        ])
         
-        busq = st.text_input("🔍 Búsqueda rápida:", key="busq_ho")
-        if busq:
-            mask = df_final.apply(lambda row: row.astype(str).str.contains(busq, case=False).any(), axis=1)
-            df_final = df_final[mask]
+        # =========================================================
+        # VISTA 1: DASHBOARD EJECUTIVO (KPIs Arriba + Filtros Limpios)
+        # =========================================================
+        with sub_exec:
+            # 1. TARJETAS DE MÉTRICAS PRIMERO
+            pat_v = df_ho[df_ho["Fecha de Patentamiento"].notna()]
+            ent_v = df_ho[df_ho["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
+            fal_v = pat_v[~pat_v['TIENE_HO']]
+            eficacia = (len(pat_v[pat_v['TIENE_HO']]) / len(pat_v) * 100) if len(pat_v) > 0 else 0
+            
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("🚗 Patentados", len(pat_v))
+            m2.metric("🤝 Entregados", len(ent_v))
+            m3.metric("⚠️ Faltan Hand Over", len(fal_v), delta="Atención requerida" if len(fal_v)>0 else "Al día", delta_color="inverse")
+            m4.metric("📈 % Eficacia", f"{eficacia:.1f}%")
+            
+            st.divider()
+            
+            # 2. BARRA DE FILTROS EN UNA SOLA LÍNEA (Sin ocupar media pantalla)
+            f_col1, f_col2, f_col3, f_col4 = st.columns([2, 2, 2, 2])
+            
+            meses_pendientes = pat_v[~pat_v['TIENE_HO']].dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
+            opciones_meses = meses_pendientes["Mes_Display"].unique().tolist()
+            mes_sel_ex = f_col1.selectbox("📅 Mes con Pendientes:", ["Todos"] + opciones_meses, key="ex_mes")
+            
+            est_disponibles = sorted([e for e in df_ho[col_ei].unique() if e not in ["NAN", ""]])
+            ei_sel_ex = f_col2.selectbox("🏷️ Estado Interno:", ["Todos"] + est_disponibles, key="ex_ei")
+            
+            modo_ex = f_col3.radio("📌 Vista de Tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True, key="ex_modo")
+            busq_ex = f_col4.text_input("🔍 Búsqueda rápida:", key="ex_busq", placeholder="Cliente, chasis, patente...")
+            
+            # 3. APLICACIÓN DE FILTROS Y TABLA
+            df_final_ex = df_ho.copy()
+            if mes_sel_ex != "Todos":
+                df_final_ex = df_final_ex[df_final_ex["Mes_Display"] == mes_sel_ex]
+            if ei_sel_ex != "Todos":
+                df_final_ex = df_final_ex[df_final_ex[col_ei] == ei_sel_ex]
+                
+            df_mostrar_ex = df_final_ex[~df_final_ex['TIENE_HO']] if modo_ex == "Solo Pendientes ⚠️" else df_final_ex
+            
+            if busq_ex:
+                mask = df_mostrar_ex.apply(lambda row: row.astype(str).str.contains(busq_ex, case=False).any(), axis=1)
+                df_mostrar_ex = df_mostrar_ex[mask]
+                
+            cols_ok_ex = [c for c in COLUMNAS_HO if c in df_mostrar_ex.columns]
+            st.dataframe(df_mostrar_ex[cols_ok_ex], use_container_width=True, hide_index=True, height=400)
 
-        df_final = df_final.rename(columns={col_ei: "ESTADO INTERNO"})
-        cols_ok = [c for c in COLUMNAS_HO if c in df_final.columns]
-        st.dataframe(df_final[cols_ok], use_container_width=True, hide_index=True)
-
+        # =========================================================
+        # VISTA 2: SEMÁFORO DE AUDITORÍA (Enfoque en Cuellos de Botella)
+        # =========================================================
+        with sub_semaforo:
+            st.write("### 🚨 Auditoría de Cuellos de Botella (Solo Faltantes de Hand Over)")
+            st.caption("Visualización rápida del motivo o estado interno en el que están trabados los vehículos patentados sin cerrar.")
+            
+            # Filtramos estrictamente los pendientes
+            df_criticos = fal_v.copy()
+            
+            if df_criticos.empty:
+                st.success("✅ ¡Excelente! No hay vehículos patentados pendientes de Hand Over.")
+            else:
+                c_graf, c_info = st.columns([3, 1])
+                
+                # Gráfico de barras rápido con la distribución del problema
+                with c_graf:
+                    conteo_ei = df_criticos[col_ei].value_counts().reset_index()
+                    conteo_ei.columns = ["Estado Interno", "Cantidad"]
+                    
+                    fig_sem = px.bar(
+                        conteo_ei, 
+                        x="Cantidad", 
+                        y="Estado Interno", 
+                        orientation="h",
+                        text_auto=True,
+                        title=f"Distribución de los {len(df_criticos)} casos pendientes",
+                        color="Cantidad",
+                        color_continuous_scale="Reds",
+                        template="plotly_white"
+                    )
+                    fig_sem.update_layout(showlegend=False, height=280)
+                    st.plotly_chart(fig_sem, use_container_width=True)
+                
+                with c_info:
+                    st.write("#### 📌 Filtro Rápido")
+                    categoria_sem = st.radio(
+                        "Filtrar tabla por estado:", 
+                        ["Ver Todos"] + sorted(df_criticos[col_ei].unique().tolist()),
+                        key="sem_radio"
+                    )
+                
+                st.divider()
+                
+                # Tabla inferior enfocada en resolver el problema
+                df_tabla_sem = df_criticos if categoria_sem == "Ver Todos" else df_criticos[df_criticos[col_ei] == categoria_sem]
+                
+                st.write(f"📋 **Detalle de casos en: {categoria_sem}** ({len(df_tabla_sem)} vehículos)")
+                cols_ok_sem = [c for c in COLUMNAS_HO if c in df_tabla_sem.columns]
+                st.dataframe(df_tabla_sem[cols_ok_sem], use_container_width=True, hide_index=True, height=350)
     # ---------------------------------------------------------
     # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS (EN ESPERA)
     # ---------------------------------------------------------
