@@ -203,7 +203,7 @@ try:
                     mask_anim = df_anim.apply(lambda row: row.astype(str).str.contains(busq_anim, case=False).any(), axis=1)
                     df_anim = df_anim[mask_anim]
             
-            # --- GENERACIÓN DE LINK INTELIGENTE DE WHATSAPP ---
+            # --- GENERACIÓN DE LINK INTELIGENTE DE WHATSAPP WEB ---
             def crear_link_whatsapp(row):
                 asesor = str(row.get("Vendedor", "")).strip().upper()
                 cliente = str(row.get("Cliente", "el cliente")).strip()
@@ -222,7 +222,9 @@ try:
                     f"de satisfacción de la marca. Por favor, dale un empuje para que la complete."
                 )
                 texto_encoded = urllib.parse.quote(mensaje)
-                return f"https://wa.me/{numero_asesor}?text={texto_encoded}"
+                
+                # Link directo a WhatsApp Web
+                return f"https://web.whatsapp.com/send?phone={numero_asesor}&text={texto_encoded}"
 
             # Creamos la columna de link por fila
             df_anim["📲 WhatsApp"] = df_anim.apply(crear_link_whatsapp, axis=1)
