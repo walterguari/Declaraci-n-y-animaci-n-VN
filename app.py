@@ -179,10 +179,18 @@ try:
             else:
                 st.info(f"No hay datos de Patentamientos válidos para {anio_sel_g}.")
         
-        # GRÁFICO 2: ENTREGAS POR MES (EN ESPAÑOL)
+        # GRÁFICO 2: ENTREGAS POR MES (EN ESPAÑOL - CORTE A FECHA HOY)
         with col_g2:
             df_ent_g = df_ho[df_ho["Fecha de confirmacion de entrega"].notna()].copy()
+            
+            # 1. Filtro de años válidos (2020 a 2030)
             df_ent_g = df_ent_g[(df_ent_g["Fecha de confirmacion de entrega"].dt.year >= 2020) & (df_ent_g["Fecha de confirmacion de entrega"].dt.year <= 2030)]
+            
+            # 2. FILTRO CLAVE: Excluir fechas futuras que no hayan ocurrido aún (corte a hoy)
+            hoy_actual = pd.to_datetime(datetime.now().date())
+            df_ent_g = df_ent_g[df_ent_g["Fecha de confirmacion de entrega"] <= hoy_actual]
+            
+            # 3. Filtro según el año seleccionado en el desplegable
             if anio_sel_g != "Todos":
                 df_ent_g = df_ent_g[df_ent_g["Fecha de confirmacion de entrega"].dt.year == int(anio_sel_g)]
                 
@@ -195,7 +203,7 @@ try:
                 
                 fig_ent = px.bar(
                     res_ent, x="Mes_Nom", y="Cantidad",
-                    title=f"🤝 Entregas por Mes ({anio_sel_g})",
+                    title=f"🤝 Entregas por Mes ({anio_sel_g}) - Efectivas",
                     text_auto=True,
                     color_discrete_sequence=['#2ecc71'],
                     template="plotly_white"
@@ -204,11 +212,11 @@ try:
                     xaxis_title="Mes", 
                     yaxis_title="Cantidad", 
                     height=320,
-                    xaxis=dict(tickangle=-30)  # Inclinación para que no se choquen los nombres
+                    xaxis=dict(tickangle=-30)
                 )
                 st.plotly_chart(fig_ent, use_container_width=True)
             else:
-                st.info(f"No hay datos de Entregas válidos para {anio_sel_g}.")
+                st.info(f"No hay datos de Entregas efectivos válidos para {anio_sel_g}.")
         
         st.divider()
         
