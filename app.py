@@ -209,6 +209,14 @@ try:
                 cliente = str(row.get("Cliente", "el cliente")).strip()
                 telefono = str(row.get("Teléfono", "-")).strip()
                 canal = str(row.get("Canal de Venta", "-")).strip()
+                marca = str(row.get("Marca", "")).strip().upper()
+                email = str(row.get("E-mail", "-")).strip()
+                
+                # Datos de encuestas previas para el resumen final
+                enc_temp = str(row.get("Encuesta Temprana", "-")).strip()
+                com_temp = str(row.get("Comentario Enc. Temp.", "-")).strip()
+                ei_reco = str(row.get("EI - Reco", "-")).strip()
+                com_int = str(row.get("Comentario de la Encuesta interna", "-")).strip()
                 
                 # Buscamos en el diccionario si tenemos el teléfono del asesor
                 numero_asesor = TELEFONOS_ASESORES.get(asesor)
@@ -216,16 +224,21 @@ try:
                 if not numero_asesor:
                     return None  # Si no hay número cargado para ese vendedor, dejamos vacío
                 
+                # Nuevo speech exacto solicitado + resumen de respuestas previas
                 mensaje = (
-                    f"Hola {asesor}! Te recuerdo que el cliente *{cliente}* "
-                    f"(Tel: {telefono}) del canal *{canal}* está pendiente de responder la encuesta "
-                    f"de satisfacción de la marca. Por favor, dale un empuje para que la complete."
+                    f"Hola, {asesor}! Tenes al cliente {canal} - {cliente} - (Tel: {telefono}) "
+                    f"está pendiente de responder la encuesta de la marca de {marca} que le llego "
+                    f"por email {email}. Por favor, de animarlo a que la responda.\n\n"
+                    f"A continuación te dejo todas las respuestas de las preguntas que se realizo:\n"
+                    f"• Encuesta Temprana: {enc_temp}\n"
+                    f"• Comentario Enc. Temp.: {com_temp}\n"
+                    f"• EI - Reco: {ei_reco}\n"
+                    f"• Comentario Encuesta Interna: {com_int}"
                 )
                 texto_encoded = urllib.parse.quote(mensaje)
                 
                 # Link directo a WhatsApp Web
                 return f"https://web.whatsapp.com/send?phone={numero_asesor}&text={texto_encoded}"
-
             # Creamos la columna de link por fila
             df_anim["📲 WhatsApp"] = df_anim.apply(crear_link_whatsapp, axis=1)
 
