@@ -103,9 +103,6 @@ try:
         "📈 Análisis Visual"
     ])
     # ---------------------------------------------------------
-    # PESTAÑA 1: GESTIÓN DE HAND OVER Y GARANTÍAS
-    # ---------------------------------------------------------
-    # ---------------------------------------------------------
     # PESTAÑA 1: GESTIÓN DE HAND OVER Y GARANTÍAS (DASHBOARD EJECUTIVO)
     # ---------------------------------------------------------
     with tab_ho:
@@ -143,18 +140,27 @@ try:
         
         col_g1, col_g2 = st.columns(2)
         
-        # GRÁFICO 1: PATENTAMIENTOS POR MES
+        # DICCIONARIO DE TRADUCCIÓN DE MESES AL ESPAÑOL
+        MESES_ESP = {
+            1: "Ene", 2: "Feb", 3: "Mar", 4: "Abr", 5: "May", 6: "Jun",
+            7: "Jul", 8: "Ago", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dic"
+        }
+
+        col_g1, col_g2 = st.columns(2)
+        
+        # GRÁFICO 1: PATENTAMIENTOS POR MES (EN ESPAÑOL)
         with col_g1:
             df_pat_g = pat_v.copy()
-            # Limpiamos años erróneos (como 2050 o 2100)
             df_pat_g = df_pat_g[(df_pat_g["Fecha de Patentamiento"].dt.year >= 2020) & (df_pat_g["Fecha de Patentamiento"].dt.year <= 2030)]
             if anio_sel_g != "Todos":
                 df_pat_g = df_pat_g[df_pat_g["Fecha de Patentamiento"].dt.year == int(anio_sel_g)]
                 
             if not df_pat_g.empty:
-                df_pat_g["Mes_Anio"] = df_pat_g["Fecha de Patentamiento"].dt.strftime('%Y-%m')
-                df_pat_g["Mes_Nom"] = df_pat_g["Fecha de Patentamiento"].dt.strftime('%b %Y')
-                res_pat = df_pat_g.groupby(["Mes_Anio", "Mes_Nom"]).size().reset_index(name="Cantidad").sort_values("Mes_Anio")
+                df_pat_g["Mes_Num"] = df_pat_g["Fecha de Patentamiento"].dt.month
+                df_pat_g["Anio_Num"] = df_pat_g["Fecha de Patentamiento"].dt.year
+                df_pat_g["Mes_Nom"] = df_pat_g["Mes_Num"].map(MESES_ESP) + " " + df_pat_g["Anio_Num"].astype(str)
+                
+                res_pat = df_pat_g.groupby(["Mes_Num", "Mes_Nom"]).size().reset_index(name="Cantidad").sort_values("Mes_Num")
                 
                 fig_pat = px.bar(
                     res_pat, x="Mes_Nom", y="Cantidad",
@@ -163,12 +169,17 @@ try:
                     color_discrete_sequence=['#3498db'],
                     template="plotly_white"
                 )
-                fig_pat.update_layout(xaxis_title="Mes", yaxis_title="Cantidad", height=300)
+                fig_pat.update_layout(
+                    xaxis_title="Mes", 
+                    yaxis_title="Cantidad", 
+                    height=320,
+                    xaxis=dict(tickangle=-30)  # Inclinación para que no se choquen los nombres
+                )
                 st.plotly_chart(fig_pat, use_container_width=True)
             else:
                 st.info(f"No hay datos de Patentamientos válidos para {anio_sel_g}.")
         
-        # GRÁFICO 2: ENTREGAS POR MES
+        # GRÁFICO 2: ENTREGAS POR MES (EN ESPAÑOL)
         with col_g2:
             df_ent_g = df_ho[df_ho["Fecha de confirmacion de entrega"].notna()].copy()
             df_ent_g = df_ent_g[(df_ent_g["Fecha de confirmacion de entrega"].dt.year >= 2020) & (df_ent_g["Fecha de confirmacion de entrega"].dt.year <= 2030)]
@@ -176,9 +187,11 @@ try:
                 df_ent_g = df_ent_g[df_ent_g["Fecha de confirmacion de entrega"].dt.year == int(anio_sel_g)]
                 
             if not df_ent_g.empty:
-                df_ent_g["Mes_Anio"] = df_ent_g["Fecha de confirmacion de entrega"].dt.strftime('%Y-%m')
-                df_ent_g["Mes_Nom"] = df_ent_g["Fecha de confirmacion de entrega"].dt.strftime('%b %Y')
-                res_ent = df_ent_g.groupby(["Mes_Anio", "Mes_Nom"]).size().reset_index(name="Cantidad").sort_values("Mes_Anio")
+                df_ent_g["Mes_Num"] = df_ent_g["Fecha de confirmacion de entrega"].dt.month
+                df_ent_g["Anio_Num"] = df_ent_g["Fecha de confirmacion de entrega"].dt.year
+                df_ent_g["Mes_Nom"] = df_ent_g["Mes_Num"].map(MESES_ESP) + " " + df_ent_g["Anio_Num"].astype(str)
+                
+                res_ent = df_ent_g.groupby(["Mes_Num", "Mes_Nom"]).size().reset_index(name="Cantidad").sort_values("Mes_Num")
                 
                 fig_ent = px.bar(
                     res_ent, x="Mes_Nom", y="Cantidad",
@@ -187,7 +200,12 @@ try:
                     color_discrete_sequence=['#2ecc71'],
                     template="plotly_white"
                 )
-                fig_ent.update_layout(xaxis_title="Mes", yaxis_title="Cantidad", height=300)
+                fig_ent.update_layout(
+                    xaxis_title="Mes", 
+                    yaxis_title="Cantidad", 
+                    height=320,
+                    xaxis=dict(tickangle=-30)  # Inclinación para que no se choquen los nombres
+                )
                 st.plotly_chart(fig_ent, use_container_width=True)
             else:
                 st.info(f"No hay datos de Entregas válidos para {anio_sel_g}.")
