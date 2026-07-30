@@ -263,6 +263,55 @@ try:
             else:
                 st.error(f"❌ No se encontró la columna '{col_entrega}'.")
         
+        # =========================================================
+        # GRÁFICO 2: ENTREGAS POR MES Y POR MARCA (TOTAL SHEET)
+        # =========================================================
+        with col_g2:
+            df_ent_g = df_base.copy()
+            col_entrega = "Fecha de confirmacion de entrega"
+            
+            if col_entrega in df_ent_g.columns:
+                df_ent_g[col_entrega] = pd.to_datetime(df_ent_g[col_entrega], dayfirst=True, errors='coerce')
+                df_ent_g = df_ent_g[df_ent_g[col_entrega].notna()].copy()
+                df_ent_g = normalizar_marca(df_ent_g)
+                
+                # Filtro según el año seleccionado en el desplegable
+                if anio_sel_g != "Todos":
+                    df_ent_g = df_ent_g[df_ent_g[col_entrega].dt.year == int(anio_sel_g)]
+                    
+                if not df_ent_g.empty:
+                    df_ent_g["Mes_Num"] = df_ent_g[col_entrega].dt.month
+                    df_ent_g["Anio_Num"] = df_ent_g[col_entrega].dt.year
+                    df_ent_g["Mes_Nom"] = df_ent_g["Mes_Num"].map(MESES_ESP) + " " + df_ent_g["Anio_Num"].astype(str)
+                    
+                    # Agrupamos por Mes y por Marca
+                    res_ent = df_ent_g.groupby(["Mes_Num", "Mes_Nom", "Marca_Graf"]).size().reset_index(name="Cantidad").sort_values("Mes_Num")
+                    
+                    fig_ent = px.bar(
+                        res_ent, 
+                        x="Mes_Nom", 
+                        y="Cantidad", 
+                        color="Marca_Graf",
+                        barmode="group",  # CLAVE: Pone las barras de Peugeot y Citroën una al lado de la otra
+                        title=f"🤝 Entregas por Mes y Marca ({anio_sel_g})",
+                        text_auto=True,
+                        color_discrete_map=MAPA_COLORES_MARCA,
+                        template="plotly_white"
+                    )
+                    fig_ent.update_layout(
+                        xaxis_title="Mes", 
+                        yaxis_title="Unidades Entregadas", 
+                        height=350,
+                        xaxis=dict(tickangle=-30),
+                        legend_title="Marca",
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    )
+                    st.plotly_chart(fig_ent, use_container_width=True)
+                else:
+                    st.info(f"No hay entregas cargadas para el año {anio_sel_g}.")
+            else:
+                st.error(f"❌ No se encontró la columna '{col_entrega}'.")
+        
         st.divider()
         
         # 3. GRÁFICO INTEGRADO: AUDITORÍA DE CUELLOS DE BOTELLA (SEMÁFORO)
