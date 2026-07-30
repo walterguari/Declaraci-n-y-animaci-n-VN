@@ -104,30 +104,33 @@ try:
     ])
 
     # ---------------------------------------------------------
-    # PESTAÑA 1: GESTIÓN DE HAND OVER
-    # ---------------------------------------------------------
-    # ---------------------------------------------------------
     # PESTAÑA 1: GESTIÓN DE HAND OVER (OPCIÓN 1 vs OPCIÓN 2)
+    # ---------------------------------------------------------
+    # ---------------------------------------------------------
+    # PESTAÑA 1: GESTIÓN DE HAND OVER Y GARANTÍAS
     # ---------------------------------------------------------
     with tab_ho:
         st.header("🛡️ Gestión de Hand Over y Garantías")
         
-        # NORMALIZACIÓN INTERNA DE CATEGORÍAS (Para evitar duplicados tipo PROMOTOR / Promotor)
+        # NORMALIZACIÓN INTERNA DE CATEGORÍAS (Para evitar duplicados)
         df_ho = df.copy()
         if col_ei in df_ho.columns:
             df_ho[col_ei] = df_ho[col_ei].astype(str).str.strip().str.upper()
             df_ho[col_ei] = df_ho[col_ei].replace({"NAN": "SIN ESTADO", "NONE": "SIN ESTADO", "": "SIN ESTADO"})
         
-        # Sub-pestañas para comparar diseños
-        sub_exec, sub_semaforo = st.tabs([
-            "📊 Opción 1: Dashboard Ejecutivo", 
-            "🚦 Opción 2: Semáforo de Auditoría"
-        ])
+        # --- DESPLEGABLE PRINCIPAL DE VISTA ---
+        vista_ho = st.selectbox(
+            "📌 Seleccionar Vista de Gestión:",
+            ["📊 Dashboard Ejecutivo", "🚦 Semáforo de Auditoría (Críticos)"],
+            key="sel_vista_ho"
+        )
+        
+        st.divider()
         
         # =========================================================
-        # VISTA 1: DASHBOARD EJECUTIVO (KPIs Arriba + Filtros Limpios)
+        # VISTA 1: DASHBOARD EJECUTIVO (KPIs + Gráficos Verticales + Tabla)
         # =========================================================
-        with sub_exec:
+        if vista_ho == "📊 Dashboard Ejecutivo":
             # 1. TARJETAS DE MÉTRICAS PRIMERO
             pat_v = df_ho[df_ho["Fecha de Patentamiento"].notna()]
             ent_v = df_ho[df_ho["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
@@ -142,7 +145,54 @@ try:
             
             st.divider()
             
-            # 2. BARRA DE FILTROS EN UNA SOLA LÍNEA (Sin ocupar media pantalla)
+            # 2. GRÁFICOS DE BARRAS VERTICALES (PATENTAMIENTOS VS ENTREGAS POR MES)
+            st.write("### 📊 Evolución Mensual Operativa")
+            col_g1, col_g2 = st.columns(2)
+            
+            with col_g1:
+                # Gráfico 1: Patentamientos por Mes (Barras Verticales)
+                df_pat_g = pat_v.copy()
+                if not df_pat_g.empty and "Fecha de Patentamiento" in df_pat_g.columns:
+                    df_pat_g["Mes_Anio"] = df_pat_g["Fecha de Patentamiento"].dt.to_period("M").astype(str)
+                    res_pat = df_pat_g.groupby("Mes_Anio").size().reset_index(name="Cantidad")
+                    res_pat = res_pat.sort_values("Mes_Anio")
+                    
+                    fig_pat = px.bar(
+                        res_pat, x="Mes_Anio", y="Cantidad",
+                        title="🚗 Patentamientos por Mes",
+                        text_auto=True,
+                        color_discrete_sequence=['#3498db'],
+                        template="plotly_white"
+                    )
+                    fig_pat.update_layout(xaxis_title="Mes", yaxis_title="Cantidad", height=320)
+                    st.plotly_chart(fig_pat, use_container_width=True)
+                else:
+                    st.info("No hay datos de Patentamientos para graficar.")
+            
+            with col_g2:
+                # Gráfico 2: Entregas por Mes (Barras Verticales)
+                df_ent_g = df_ho[df_ho["Fecha de confirmacion de entrega"].notna()].copy()
+                if not df_ent_g.empty and "Fecha de confirmacion de entrega" in df_ent_g.columns:
+                    df_ent_g["Mes_Anio"] = df_ent_g["Fecha de confirmacion de entrega"].dt.to_period("M").astype(str)
+                    res_ent = df_ent_g.groupby("Mes_Anio").size().reset_index(name="Cantidad")
+                    res_ent = res_ent.sort_values("Mes_Anio")
+                    
+                    fig_ent = px.bar(
+                        res_ent, x="Mes_Anio", y="Cantidad",
+                        title="🤝 Entregas por Mes",
+                        text_auto=True,
+                        color_discrete_sequence=['#2ecc71'],
+                        template="plotly_white"
+                    )
+                    fig_ent.update_layout(xaxis_title="Mes", yaxis_title="Cantidad", height=320)
+                    st.plotly_chart(fig_ent, use_container_width=True)
+                else:
+                    st.info("No hay datos de Fechas de Entrega para graficar.")
+            
+            st.divider()
+            
+            # 3. BARRA DE FILTROS COMPACTA EN UNA SOLA LÍNEA
+            st.write("### 📋 Detalle de Unidades")
             f_col1, f_col2, f_col3, f_col4 = st.columns([2, 2, 2, 2])
             
             meses_pendientes = pat_v[~pat_v['TIENE_HO']].dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
@@ -155,7 +205,7 @@ try:
             modo_ex = f_col3.radio("📌 Vista de Tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True, key="ex_modo")
             busq_ex = f_col4.text_input("🔍 Búsqueda rápida:", key="ex_busq", placeholder="Cliente, chasis, patente...")
             
-            # 3. APLICACIÓN DE FILTROS Y TABLA
+            # 4. APLICACIÓN DE FILTROS Y TABLA
             df_final_ex = df_ho.copy()
             if mes_sel_ex != "Todos":
                 df_final_ex = df_final_ex[df_final_ex["Mes_Display"] == mes_sel_ex]
@@ -174,12 +224,13 @@ try:
         # =========================================================
         # VISTA 2: SEMÁFORO DE AUDITORÍA (Enfoque en Cuellos de Botella)
         # =========================================================
-        with sub_semaforo:
+        else:
             st.write("### 🚨 Auditoría de Cuellos de Botella (Solo Faltantes de Hand Over)")
             st.caption("Visualización rápida del motivo o estado interno en el que están trabados los vehículos patentados sin cerrar.")
             
             # Filtramos estrictamente los pendientes
-            df_criticos = fal_v.copy()
+            pat_v = df_ho[df_ho["Fecha de Patentamiento"].notna()]
+            df_criticos = pat_v[~pat_v['TIENE_HO']].copy()
             
             if df_criticos.empty:
                 st.success("✅ ¡Excelente! No hay vehículos patentados pendientes de Hand Over.")
