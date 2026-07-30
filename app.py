@@ -152,58 +152,7 @@ try:
     # ---------------------------------------------------------
     # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS (EN ESPERA)
     # ---------------------------------------------------------
-    with tab_animacion:
-        st.header("📣 Animación de Encuesta de la Marca")
-        st.write("Listado de clientes con estado **En Espera** para seguimiento y animación de respuestas.")
-        
-        # 1. Búsqueda y normalización de la columna Estado de la marca
-        col_em = "Estado de la marca"
-        if col_em not in df.columns:
-            col_encontrada = [c for c in df.columns if c.upper().strip() == "ESTADO DE LA MARCA"]
-            if col_encontrada:
-                col_em = col_encontrada[0]
-            else:
-                st.error("❌ No se encontró la columna 'Estado de la marca' en la hoja de Google Sheets.")
-        
-        df_anim = pd.DataFrame()
-        
-        if col_em in df.columns:
-            # Filtro estricto para casos en espera
-            df_anim = df[df[col_em].astype(str).str.strip().str.upper() == "EN ESPERA"].copy()
-            
-            # --- SECCIÓN DE LOS 3 FILTROS SOLICITADOS ---
-            st.divider()
-            f_col1, f_col2, f_col3 = st.columns(3)
-            
-            marcas_anim = sorted(df_anim["Marca"].dropna().unique()) if "Marca" in df_anim.columns else []
-            sel_marca = f_col1.multiselect("📌 Filtrar por Marca", options=marcas_anim, key="anim_marca")
-            
-            canales_anim = sorted(df_anim["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df_anim.columns else []
-            sel_canal = f_col2.multiselect("📌 Filtrar por Canal de Venta", options=canales_anim, key="anim_canal")
-            
-            vendedores_anim = sorted(df_anim["Vendedor"].dropna().unique()) if "Vendedor" in df_anim.columns else []
-            sel_vend = f_col3.multiselect("📌 Filtrar por Vendedor", options=vendedores_anim, key="anim_vend")
-            
-            # Aplicamos los filtros seleccionados
-            if sel_marca:
-                df_anim = df_anim[df_anim["Marca"].isin(sel_marca)]
-            if sel_canal:
-                df_anim = df_anim[df_anim["Canal de Venta"].isin(sel_canal)]
-            if sel_vend:
-                df_anim = df_anim[df_anim["Vendedor"].isin(sel_vend)]
-                
-            # --- MÉTRICA DE RESULTADOS Y BUSCADOR RÁPIDO ---
-            st.divider()
-            m_col1, m_col2 = st.columns([1, 3])
-            m_col1.metric("🔔 Total a Animar", f"{len(df_anim)} clientes")
-            
-            with m_col2:
-                busq_anim = st.text_input("🔍 Búsqueda rápida por Cliente, Teléfono o E-mail:", key="busq_anim")
-                if busq_anim:
-                    mask_anim = df_anim.apply(lambda row: row.astype(str).str.contains(busq_anim, case=False).any(), axis=1)
-                    df_anim = df_anim[mask_anim]
-            
-            # --- GENERACIÓN DE LINK INTELIGENTE DE WHATSAPP WEB ---
+    # --- GENERACIÓN DE LINK INTELIGENTE DE WHATSAPP WEB ---
             def crear_link_whatsapp(row):
                 asesor = str(row.get("Vendedor", "")).strip().upper()
                 cliente = str(row.get("Cliente", "el cliente")).strip()
@@ -212,11 +161,13 @@ try:
                 marca = str(row.get("Marca", "")).strip().upper()
                 email = str(row.get("E-mail", "-")).strip()
                 
-                # Datos de encuestas previas para el resumen final
-                enc_temp = str(row.get("Encuesta Temprana", "-")).strip()
-                com_temp = str(row.get("Comentario Enc. Temp.", "-")).strip()
-                ei_reco = str(row.get("EI - Reco", "-")).strip()
-                com_int = str(row.get("Comentario de la Encuesta interna", "-")).strip()
+                # Función auxiliar para que los "nan", nulos o vacíos se muestren como "Sin comentarios"
+                def limpiar_texto(val):
+                    txt = str(val).strip()
+                    return "Sin comentarios" if txt.lower() in ["nan", "none", "", "null", "-"] else txt
+                
+                com_temp = limpiar_texto(row.get("Comentario Enc. Temp."))
+                com_int = limpiar_texto(row.get("Comentario de la Encuesta interna"))
                 
                 # Buscamos en el diccionario si tenemos el teléfono del asesor
                 numero_asesor = TELEFONOS_ASESORES.get(asesor)
@@ -224,15 +175,13 @@ try:
                 if not numero_asesor:
                     return None  # Si no hay número cargado para ese vendedor, dejamos vacío
                 
-                # Nuevo speech exacto solicitado + resumen de respuestas previas
+                # Speech exacto sin las líneas de Encuesta Temprana y EI-Reco
                 mensaje = (
                     f"Hola, {asesor}! Tenes al cliente {canal} - {cliente} - (Tel: {telefono}) "
                     f"está pendiente de responder la encuesta de la marca de {marca} que le llego "
                     f"por email {email}. Por favor, de animarlo a que la responda.\n\n"
                     f"A continuación te dejo todas las respuestas de las preguntas que se realizo:\n"
-                    f"• Encuesta Temprana: {enc_temp}\n"
                     f"• Comentario Enc. Temp.: {com_temp}\n"
-                    f"• EI - Reco: {ei_reco}\n"
                     f"• Comentario Encuesta Interna: {com_int}"
                 )
                 texto_encoded = urllib.parse.quote(mensaje)
