@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from datetime import datetime
+import urllib.parse
 
 # 1. Configuración de la página
 st.set_page_config(page_title="Portal de Gestión VN", layout="wide", page_icon="🚗")
@@ -13,6 +14,13 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 # URL Limpia original
 url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
+
+# --- DICCIONARIO DE TELÉFONOS DE LOS ASESORES ---
+# Podés agregar más vendedores siguiendo exactamente este formato: "NOMBRE EN SHEETS": "NUMERO CON CODIGO DE PAIS Y AREA"
+TELEFONOS_ASESORES = {
+    "MARCELO CISNEROS": "5493886868562",
+    "OLMOS MARIO": "5493874854123"
+}
 
 # Columnas para la pestaña de Hand Over
 COLUMNAS_HO = [
@@ -195,11 +203,35 @@ try:
                     mask_anim = df_anim.apply(lambda row: row.astype(str).str.contains(busq_anim, case=False).any(), axis=1)
                     df_anim = df_anim[mask_anim]
             
-            # --- PREPARACIÓN DE TABLA SIN MARCA + COLOREADO POR CANAL ---
+            # --- GENERACIÓN DE LINK INTELIGENTE DE WHATSAPP ---
+            def crear_link_whatsapp(row):
+                asesor = str(row.get("Vendedor", "")).strip().upper()
+                cliente = str(row.get("Cliente", "el cliente")).strip()
+                telefono = str(row.get("Teléfono", "-")).strip()
+                canal = str(row.get("Canal de Venta", "-")).strip()
+                
+                # Buscamos en el diccionario si tenemos el teléfono del asesor
+                numero_asesor = TELEFONOS_ASESORES.get(asesor)
+                
+                if not numero_asesor:
+                    return None  # Si no hay número cargado para ese vendedor, dejamos vacío
+                
+                mensaje = (
+                    f"Hola {asesor}! Te recuerdo que el cliente *{cliente}* "
+                    f"(Tel: {telefono}) del canal *{canal}* está pendiente de responder la encuesta "
+                    f"de satisfacción de la marca. Por favor, dale un empuje para que la complete."
+                )
+                texto_encoded = urllib.parse.quote(mensaje)
+                return f"https://wa.me/{numero_asesor}?text={texto_encoded}"
+
+            # Creamos la columna de link por fila
+            df_anim["📲 WhatsApp"] = df_anim.apply(crear_link_whatsapp, axis=1)
+
+            # --- PREPARACIÓN DE TABLA ---
             cols_anim_ok = [c for c in COLUMNAS_ANIMACION if c in df_anim.columns]
             
-            # Mantenemos "Marca" temporalmente en el dataframe base para saber qué color aplicar
-            cols_con_marca = ["Marca"] + [c for c in cols_anim_ok if c != "Marca"]
+            # Agregamos "📲 WhatsApp" en primer lugar visual y "Marca" oculta para colorear
+            cols_con_marca = ["Marca", "📲 WhatsApp"] + [c for c in cols_anim_ok if c != "Marca"]
             df_tabla = df_anim[cols_con_marca].fillna("-").copy()
             
             # Función para pintar la celda de "Canal de Venta" según el valor de la marca en esa fila
@@ -216,15 +248,20 @@ try:
                         estilos[idx_canal] = 'background-color: #fde2c4; color: #78350f; font-weight: bold;'
                 return estilos
 
-            # Aplicamos el estilo y luego ocultamos la columna Marca de la vista final
+            # Aplicamos estilo y OCULTAMOS EXPLÍCITAMENTE la columna "Marca" de la vista
             df_estilizado = df_tabla.style.apply(resaltar_canal, axis=1).hide(axis="index").hide(subset=["Marca"], axis="columns")
             
-            # Mostramos con st.dataframe para recuperar los botones de descarga y pantalla completa
+            # Mostramos la tabla con configuración especial para los links y los comentarios
             st.dataframe(
                 df_estilizado,
                 use_container_width=True,
                 height=450,
                 column_config={
+                    "📲 WhatsApp": st.column_config.LinkColumn(
+                        "📲 Avisar",
+                        help="Hacé clic para enviar un WhatsApp automático al vendedor",
+                        display_text="Avisar a Vendedor"
+                    ),
                     "Comentario Enc. Temp.": st.column_config.TextColumn(
                         "Comentario Enc. Temp.",
                         width="medium"
