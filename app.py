@@ -226,7 +226,6 @@ try:
                         legend_title="Marca",
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                     )
-                    # AGREGAMOS KEY ÚNICA PARA EVITAR EL ERROR
                     st.plotly_chart(fig_pat, use_container_width=True, key="g_pat_ho")
                 else:
                     st.info(f"No hay patentamientos cargados para el año {anio_sel_g}.")
@@ -258,13 +257,12 @@ try:
                         legend_title="Marca",
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                     )
-                    # AGREGAMOS KEY ÚNICA PARA EVITAR EL ERROR
                     st.plotly_chart(fig_ent, use_container_width=True, key="g_ent_ho")
                 else:
                     st.info(f"No hay entregas cargadas para el año {anio_sel_g}.")
 
         # =========================================================
-        # 2. MÉTRICAS CLAVE (KPIs) - AHORA FUERA Y ABAJO DEL DESPLEGABLE
+        # 2. MÉTRICAS CLAVE (KPIs) - FUERA Y ABAJO DEL DESPLEGABLE
         # =========================================================
         st.divider()
         pat_v = df_ho[df_ho["Fecha de Patentamiento"].notna()]
@@ -281,38 +279,89 @@ try:
         st.divider()
 
         # =========================================================
-        # 3. GRÁFICO AUDITORÍA DE CUELLOS DE BOTELLA (SEMÁFORO)
+        # 3. AUDITORÍA DE CUELLOS DE BOTELLA (FILTRO AÑO + MATRIZ + GRÁFICO)
         # =========================================================
         st.write("### 🚨 Auditoría de Cuellos de Botella (Pendientes de Hand Over)")
-        df_criticos = fal_v.copy()
-        if not df_criticos.empty:
-            conteo_ei = df_criticos[col_ei].value_counts().reset_index()
-            conteo_ei.columns = ["Estado Interno", "Cantidad"]
-            
-            fig_sem = px.bar(
-                conteo_ei, x="Cantidad", y="Estado Interno", 
-                orientation="h", text_auto=True,
-                title=f"Motivos de retraso en los {len(df_criticos)} casos pendientes",
-                color="Cantidad", color_continuous_scale="Reds",
-                template="plotly_white"
-            )
-            fig_sem.update_layout(showlegend=False, height=260)
-            # AGREGAMOS KEY ÚNICA PARA EVITAR EL ERROR
-            st.plotly_chart(fig_sem, use_container_width=True, key="g_sem_ho")
+        
+        # --- FILTRO DE AÑO BASADO EN FECHA DE CONFIRMACIÓN DE ENTREGA ---
+        df_entregas_base = df_ho.copy()
+        col_entrega_ho = "Fecha de confirmacion de entrega"
+        
+        if col_entrega_ho in df_entregas_base.columns:
+            df_entregas_base[col_entrega_ho] = pd.to_datetime(df_entregas_base[col_entrega_ho], dayfirst=True, errors='coerce')
+            anios_ent = df_entregas_base[col_entrega_ho].dt.year.dropna().unique()
+            anios_validos_sem = sorted([int(a) for a in anios_ent if 2020 <= a <= 2030], reverse=True)
         else:
-            st.success("✅ ¡Excelente! No hay vehículos patentados pendientes de Hand Over.")
+            anios_validos_sem = [2026]
+
+        c_tit_sem, c_anio_sem = st.columns([3, 1])
+        anio_sel_sem = c_anio_sem.selectbox(
+            "📅 Año (según Confirmación Entrega):", 
+            ["Todos"] + (anios_validos_sem if anios_validos_sem else [2026]), 
+            key="ho_anio_sem"
+        )
+
+        # --- FILTRADO DE CASOS CRÍTICOS (SIN HAND OVER Y POR AÑO DE ENTREGA) ---
+        df_criticos = df_ho[~df_ho['TIENE_HO']].copy()
+        
+        if col_entrega_ho in df_criticos.columns:
+            df_criticos[col_entrega_ho] = pd.to_datetime(df_criticos[col_entrega_ho], dayfirst=True, errors='coerce')
+            if anio_sel_sem != "Todos":
+                df_criticos = df_criticos[df_criticos[col_entrega_ho].dt.year == int(anio_sel_sem)]
+
+        if not df_criticos.empty:
+            df_criticos["Mes_Num_Ent"] = df_criticos[col_entrega_ho].dt.month.fillna(0).astype(int)
+            df_criticos["Mes_Nom_Ent"] = df_criticos["Mes_Num_Ent"].map(MESES_ESP).fillna("Sin Fecha")
+            
+            col_tabla_matriz, col_graf_sem = st.columns([3, 2])
+            
+            with col_tabla_matriz:
+                st.write("#### 📋 Matriz Mensual de Estado Interno")
+                tabla_cruzada = pd.crosstab(
+                    index=df_criticos[col_ei], 
+                    columns=df_criticos["Mes_Nom_Ent"], 
+                    margins=True, 
+                    margins_name="TOTAL"
+                )
+                
+                orden_meses = [MESES_ESP[m] for m in sorted(MESES_ESP.keys()) if MESES_ESP[m] in tabla_cruzada.columns]
+                extras = [c for c in tabla_cruzada.columns if c not in orden_meses and c != "TOTAL"]
+                if "TOTAL" in tabla_cruzada.columns:
+                    orden_final = orden_meses + extras + ["TOTAL"]
+                else:
+                    orden_final = orden_meses + extras
+                    
+                tabla_cruzada = tabla_cruzada[orden_final]
+                st.dataframe(tabla_cruzada, use_container_width=True, height=280)
+            
+            with col_graf_sem:
+                st.write("#### 📊 Distribución Visual")
+                conteo_ei = df_criticos[col_ei].value_counts().reset_index()
+                conteo_ei.columns = ["Estado Interno", "Cantidad"]
+                
+                fig_sem = px.bar(
+                    conteo_ei, x="Cantidad", y="Estado Interno", 
+                    orientation="h", text_auto=True,
+                    title=f"Pendientes ({anio_sel_sem}) - Total: {len(df_criticos)}",
+                    color="Cantidad", color_continuous_scale="Reds",
+                    template="plotly_white"
+                )
+                fig_sem.update_layout(showlegend=False, height=280, margin=dict(t=40, l=10, r=10, b=10))
+                st.plotly_chart(fig_sem, use_container_width=True, key="g_sem_ho")
+        else:
+            st.success(f"✅ ¡Excelente! No hay vehículos pendientes de Hand Over para el periodo seleccionado ({anio_sel_sem}).")
             
         st.divider()
 
         # =========================================================
-        # 4. BARRA DE FILTROS Y TABLA DETALLADA
+        # 4. BARRA DE FILTROS Y TABLA DETALLADA (LISTADO OPERATIVO)
         # =========================================================
         st.write("### 📋 Detalle y Gestión de Unidades")
         f_col1, f_col2, f_col3, f_col4 = st.columns([2, 2, 2, 2])
         
-        meses_pendientes = pat_v[~pat_v['TIENE_HO']].dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
+        meses_pendientes = df_ho[~df_ho['TIENE_HO']].dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
         opciones_meses = meses_pendientes["Mes_Display"].unique().tolist()
-        mes_sel_ex = f_col1.selectbox("📅 Mes con Pendientes:", ["Todos"] + opciones_meses, key="ex_mes")
+        mes_sel_ex = f_col1.selectbox("📅 Mes de Patentamiento:", ["Todos"] + opciones_meses, key="ex_mes")
         
         est_disponibles = sorted([e for e in df_ho[col_ei].unique() if e not in ["NAN", ""]])
         ei_sel_ex = f_col2.selectbox("🏷️ Estado Interno:", ["Todos"] + est_disponibles, key="ex_ei")
@@ -320,7 +369,6 @@ try:
         modo_ex = f_col3.radio("📌 Vista de Tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True, key="ex_modo")
         busq_ex = f_col4.text_input("🔍 Búsqueda rápida:", key="ex_busq", placeholder="Cliente, chasis, patente...")
         
-        # Filtros y renderizado de la tabla
         df_final_ex = df_ho.copy()
         if mes_sel_ex != "Todos":
             df_final_ex = df_final_ex[df_final_ex["Mes_Display"] == mes_sel_ex]
@@ -335,6 +383,7 @@ try:
             
         cols_ok_ex = [c for c in COLUMNAS_HO if c in df_mostrar_ex.columns]
         st.dataframe(df_mostrar_ex[cols_ok_ex], use_container_width=True, hide_index=True, height=450)
+
     # ---------------------------------------------------------
     # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS (EN ESPERA)
     # ---------------------------------------------------------
@@ -342,7 +391,6 @@ try:
         st.header("📣 Animación de Encuesta de la Marca")
         st.write("Listado de clientes con estado **En Espera** para seguimiento y animación de respuestas.")
         
-        # 1. Búsqueda y normalización de la columna Estado de la marca
         col_em = "Estado de la marca"
         if col_em not in df.columns:
             col_encontrada = [c for c in df.columns if c.upper().strip() == "ESTADO DE LA MARCA"]
@@ -354,10 +402,8 @@ try:
         df_anim = pd.DataFrame()
         
         if col_em in df.columns:
-            # Filtro estricto para casos en espera
             df_anim = df[df[col_em].astype(str).str.strip().str.upper() == "EN ESPERA"].copy()
             
-            # --- SECCIÓN DE LOS 3 FILTROS SOLICITADOS ---
             st.divider()
             f_col1, f_col2, f_col3 = st.columns(3)
             
@@ -370,7 +416,6 @@ try:
             vendedores_anim = sorted(df_anim["Vendedor"].dropna().unique()) if "Vendedor" in df_anim.columns else []
             sel_vend = f_col3.multiselect("📌 Filtrar por Vendedor", options=vendedores_anim, key="anim_vend")
             
-            # Aplicamos los filtros seleccionados
             if sel_marca:
                 df_anim = df_anim[df_anim["Marca"].isin(sel_marca)]
             if sel_canal:
@@ -378,7 +423,6 @@ try:
             if sel_vend:
                 df_anim = df_anim[df_anim["Vendedor"].isin(sel_vend)]
                 
-            # --- MÉTRICA DE RESULTADOS Y BUSCADOR RÁPIDO ---
             st.divider()
             m_col1, m_col2 = st.columns([1, 3])
             m_col1.metric("🔔 Total a Animar", f"{len(df_anim)} clientes")
@@ -389,7 +433,6 @@ try:
                     mask_anim = df_anim.apply(lambda row: row.astype(str).str.contains(busq_anim, case=False).any(), axis=1)
                     df_anim = df_anim[mask_anim]
 
-            # --- GENERACIÓN DE LINK INTELIGENTE DE WHATSAPP WEB ---
             def crear_link_whatsapp(row):
                 asesor = str(row.get("Vendedor", "")).strip().upper()
                 cliente = str(row.get("Cliente", "el cliente")).strip()
@@ -398,7 +441,6 @@ try:
                 marca = str(row.get("Marca", "")).strip().upper()
                 email = str(row.get("E-mail", "-")).strip()
                 
-                # Función auxiliar para que los "nan", nulos o vacíos se muestren como "Sin comentarios"
                 def limpiar_texto(val):
                     txt = str(val).strip()
                     return "Sin comentarios" if txt.lower() in ["nan", "none", "", "null", "-"] else txt
@@ -406,13 +448,11 @@ try:
                 com_temp = limpiar_texto(row.get("Comentario Enc. Temp."))
                 com_int = limpiar_texto(row.get("Comentario de la Encuesta interna"))
                 
-                # Buscamos en el diccionario si tenemos el teléfono del asesor
                 numero_asesor = TELEFONOS_ASESORES.get(asesor)
                 
                 if not numero_asesor:
-                    return None  # Si no hay número cargado para ese vendedor, dejamos vacío
+                    return None
                 
-                # Speech exacto sin las líneas de Encuesta Temprana y EI-Reco
                 mensaje = (
                     f"Hola, {asesor}! Tenes al cliente {canal} - {cliente} - (Tel: {telefono}) "
                     f"está pendiente de responder la encuesta de la marca de {marca} que le llego "
@@ -422,38 +462,27 @@ try:
                     f"• Comentario Encuesta Interna: {com_int}"
                 )
                 texto_encoded = urllib.parse.quote(mensaje)
-                
-                # Link directo a WhatsApp Web
                 return f"https://web.whatsapp.com/send?phone={numero_asesor}&text={texto_encoded}"
 
-            # Creamos la columna de link por fila
             df_anim["📲 WhatsApp"] = df_anim.apply(crear_link_whatsapp, axis=1)
 
-            # --- PREPARACIÓN DE TABLA ---
             cols_anim_ok = [c for c in COLUMNAS_ANIMACION if c in df_anim.columns]
-            
-            # Agregamos "📲 WhatsApp" en primer lugar visual y "Marca" oculta para colorear
             cols_con_marca = ["Marca", "📲 WhatsApp"] + [c for c in cols_anim_ok if c != "Marca"]
             df_tabla = df_anim[cols_con_marca].fillna("-").copy()
             
-            # Función para pintar la celda de "Canal de Venta" según el valor de la marca en esa fila
             def resaltar_canal(row):
                 estilos = [''] * len(row)
                 if "Canal de Venta" in row.index and "Marca" in row.index:
                     idx_canal = row.index.get_loc("Canal de Venta")
                     marca = str(row["Marca"]).upper()
                     if "PEUGEOT" in marca:
-                        # Azul clarito
                         estilos[idx_canal] = 'background-color: #d0e1fd; color: #0c326f; font-weight: bold;'
-                    elif "CITRO" in marca:  # Cubre Citroen o Citroën
-                        # Naranja clarito
+                    elif "CITRO" in marca:
                         estilos[idx_canal] = 'background-color: #fde2c4; color: #78350f; font-weight: bold;'
                 return estilos
 
-            # Aplicamos estilo y OCULTAMOS EXPLÍCITAMENTE la columna "Marca" de la vista
             df_estilizado = df_tabla.style.apply(resaltar_canal, axis=1).hide(axis="index").hide(subset=["Marca"], axis="columns")
             
-            # Mostramos la tabla con configuración especial para los links y los comentarios
             st.dataframe(
                 df_estilizado,
                 use_container_width=True,
@@ -464,18 +493,11 @@ try:
                         help="Hacé clic para enviar un WhatsApp automático al vendedor",
                         display_text="Avisar a Vendedor"
                     ),
-                    "Comentario Enc. Temp.": st.column_config.TextColumn(
-                        "Comentario Enc. Temp.",
-                        width="medium"
-                    ),
-                    "Comentario de la Encuesta interna": st.column_config.TextColumn(
-                        "Comentario Encuesta Interna",
-                        width="large"
-                    )
+                    "Comentario Enc. Temp.": st.column_config.TextColumn("Comentario Enc. Temp.", width="medium"),
+                    "Comentario de la Encuesta interna": st.column_config.TextColumn("Comentario Encuesta Interna", width="large")
                 }
             )
             
-            # Alerta si hay columnas pedidas que no existan en el sheet
             cols_faltantes = set(COLUMNAS_ANIMACION) - set(cols_anim_ok)
             if cols_faltantes:
                 st.caption(f"⚠️ Nota: Las siguientes columnas solicitadas no fueron encontradas con ese nombre exacto en el archivo original: {', '.join(cols_faltantes)}")
@@ -513,12 +535,14 @@ try:
                 df_g["Mes_Nom"] = df_g[col_f].dt.strftime('%B')
                 resumen = df_g.groupby(["Mes_Num", "Mes_Nom"]).size().reset_index(name="Cant")
                 
-                fig_v = px.bar(resumen.sort_values("Mes_Num"), x="Mes_Nom", y="Cant", text_auto=True, 
-                               title=f"Volumen de {tipo_g} - {año_sel}", 
-                               color_discrete_sequence=['#3498db' if tipo_g == "Facturación" else '#2ecc71'],
-                               template="plotly_white")
+                fig_v = px.bar(
+                    resumen.sort_values("Mes_Num"), x="Mes_Nom", y="Cant", text_auto=True, 
+                    title=f"Volumen de {tipo_g} - {año_sel}", 
+                    color_discrete_sequence=['#3498db' if tipo_g == "Facturación" else '#2ecc71'],
+                    template="plotly_white"
+                )
                 
-                evento_clic = st.plotly_chart(fig_v, use_container_width=True, on_select="rerun")
+                evento_clic = st.plotly_chart(fig_v, use_container_width=True, on_select="rerun", key="g_tiempos")
                 
                 if evento_clic and "selection" in evento_clic and evento_clic["selection"]["points"]:
                     mes_click = evento_clic["selection"]["points"][0]["x"]
@@ -554,14 +578,10 @@ try:
             OBJ1, OBJ_PREP, OBJ2, OBJ3 = 2, 1, 3, 3 
             p1, p_prep, p2, p3, p4 = df_t["Facturación a Gestor"].mean(), df_t["Prep a Retiro"].mean(), df_t["Gestoría"].mean(), df_t["Papeles a Entrega"].mean(), df_t["Demora Total"].mean()
 
-            mt1.metric("Fact. a Gestor", f"{p1:.1f} d" if pd.notna(p1) else "0.0 d", 
-                       delta=f"{p1-OBJ1:.1f} vs Obj" if pd.notna(p1) else None, delta_color="inverse")
-            mt_prep.metric("Prep. a Retiro", f"{p_prep:.1f} d" if pd.notna(p_prep) else "0.0 d", 
-                       delta=f"{p_prep-OBJ_PREP:.1f} vs Obj" if pd.notna(p_prep) else None, delta_color="inverse")
-            mt2.metric("Gestión Gestor", f"{p2:.1f} d" if pd.notna(p2) else "0.0 d", 
-                       delta=f"{p2-OBJ2:.1f} vs Obj" if pd.notna(p2) else None, delta_color="inverse")
-            mt3.metric("Papeles a Entrega", f"{p3:.1f} d" if pd.notna(p3) else "0.0 d", 
-                       delta=f"{p3-OBJ3:.1f} vs Obj" if pd.notna(p3) else None, delta_color="inverse")
+            mt1.metric("Fact. a Gestor", f"{p1:.1f} d" if pd.notna(p1) else "0.0 d", delta=f"{p1-OBJ1:.1f} vs Obj" if pd.notna(p1) else None, delta_color="inverse")
+            mt_prep.metric("Prep. a Retiro", f"{p_prep:.1f} d" if pd.notna(p_prep) else "0.0 d", delta=f"{p_prep-OBJ_PREP:.1f} vs Obj" if pd.notna(p_prep) else None, delta_color="inverse")
+            mt2.metric("Gestión Gestor", f"{p2:.1f} d" if pd.notna(p2) else "0.0 d", delta=f"{p2-OBJ2:.1f} vs Obj" if pd.notna(p2) else None, delta_color="inverse")
+            mt3.metric("Papeles a Entrega", f"{p3:.1f} d" if pd.notna(p3) else "0.0 d", delta=f"{p3-OBJ3:.1f} vs Obj" if pd.notna(p3) else None, delta_color="inverse")
             mt4.metric("Ciclo Total", f"{p4:.1f} d" if pd.notna(p4) else "0.0 d")
 
             st.subheader(f"📋 Detalle de Unidades ({tipo_g} en el periodo)")
@@ -599,11 +619,11 @@ try:
             with g1:
                 st.write("### Unidades por Marca")
                 if "Marca" in df.columns:
-                    st.plotly_chart(px.bar(df["Marca"].value_counts().reset_index(), x="Marca", y="count", color="Marca", template="plotly_white"), use_container_width=True)
+                    st.plotly_chart(px.bar(df["Marca"].value_counts().reset_index(), x="Marca", y="count", color="Marca", template="plotly_white"), use_container_width=True, key="g_marca")
             with g2:
                 st.write("### Estado Interno de los Pendientes")
                 if col_ei in df.columns:
-                    st.plotly_chart(px.pie(df[df['TIENE_HO']==False], names=col_ei, hole=0.4), use_container_width=True)
+                    st.plotly_chart(px.pie(df[df['TIENE_HO']==False], names=col_ei, hole=0.4), use_container_width=True, key="g_ei")
 
 except Exception as e:
     st.error(f"Error al cargar el portal: {e}")
