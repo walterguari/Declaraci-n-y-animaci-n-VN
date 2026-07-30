@@ -211,7 +211,7 @@ try:
                     if "PEUGEOT" in marca:
                         # Azul clarito
                         estilos[idx_canal] = 'background-color: #d0e1fd; color: #0c326f; font-weight: bold;'
-                    elif "CITRO" in marca: # Cubre Citroen o Citroën
+                    elif "CITRO" in marca:  # Cubre Citroen o Citroën
                         # Naranja clarito
                         estilos[idx_canal] = 'background-color: #fde2c4; color: #78350f; font-weight: bold;'
                 return estilos
