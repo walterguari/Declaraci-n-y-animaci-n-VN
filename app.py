@@ -146,77 +146,122 @@ try:
             7: "Jul", 8: "Ago", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dic"
         }
 
+        # FUNCIÓN AUXILIAR PARA ESTANDARIZAR LA MARCA EN LOS GRÁFICOS
+        def normalizar_marca(df_input):
+            if "Marca" not in df_input.columns:
+                df_input["Marca_Graf"] = "OTRA"
+                return df_input
+            marca_limpia = df_input["Marca"].astype(str).str.strip().str.upper()
+            df_input["Marca_Graf"] = np.where(marca_limpia.str.contains("PEUGEOT", na=False), "PEUGEOT",
+                                     np.where(marca_limpia.str.contains("CITRO", na=False), "CITROËN", "OTRA"))
+            return df_input
+
+        # COLORES OFICIALES PARA EL GRÁFICO AGRUPADO
+        MAPA_COLORES_MARCA = {
+            "PEUGEOT": "#1e3d59",  # Azul Peugeot
+            "CITROËN": "#ff6e40",  # Naranja Citroën
+            "OTRA": "#b0bec5"      # Gris para casos sin marca
+        }
+
         col_g1, col_g2 = st.columns(2)
         
-        # GRÁFICO 1: PATENTAMIENTOS POR MES (EN ESPAÑOL)
+        # =========================================================
+        # GRÁFICO 1: PATENTAMIENTOS POR MES Y POR MARCA
+        # =========================================================
         with col_g1:
-            df_pat_g = pat_v.copy()
-            df_pat_g = df_pat_g[(df_pat_g["Fecha de Patentamiento"].dt.year >= 2020) & (df_pat_g["Fecha de Patentamiento"].dt.year <= 2030)]
-            if anio_sel_g != "Todos":
-                df_pat_g = df_pat_g[df_pat_g["Fecha de Patentamiento"].dt.year == int(anio_sel_g)]
+            df_pat_g = df_base.copy()
+            col_pat = "Fecha de Patentamiento"
+            
+            if col_pat in df_pat_g.columns:
+                df_pat_g[col_pat] = pd.to_datetime(df_pat_g[col_pat], dayfirst=True, errors='coerce')
+                df_pat_g = df_pat_g[df_pat_g[col_pat].notna()].copy()
+                df_pat_g = normalizar_marca(df_pat_g)
                 
-            if not df_pat_g.empty:
-                df_pat_g["Mes_Num"] = df_pat_g["Fecha de Patentamiento"].dt.month
-                df_pat_g["Anio_Num"] = df_pat_g["Fecha de Patentamiento"].dt.year
-                df_pat_g["Mes_Nom"] = df_pat_g["Mes_Num"].map(MESES_ESP) + " " + df_pat_g["Anio_Num"].astype(str)
-                
-                res_pat = df_pat_g.groupby(["Mes_Num", "Mes_Nom"]).size().reset_index(name="Cantidad").sort_values("Mes_Num")
-                
-                fig_pat = px.bar(
-                    res_pat, x="Mes_Nom", y="Cantidad",
-                    title=f"🚗 Patentamientos por Mes ({anio_sel_g})",
-                    text_auto=True,
-                    color_discrete_sequence=['#3498db'],
-                    template="plotly_white"
-                )
-                fig_pat.update_layout(
-                    xaxis_title="Mes", 
-                    yaxis_title="Cantidad", 
-                    height=320,
-                    xaxis=dict(tickangle=-30)  # Inclinación para que no se choquen los nombres
-                )
-                st.plotly_chart(fig_pat, use_container_width=True)
+                # Filtro según el año seleccionado en el desplegable
+                if anio_sel_g != "Todos":
+                    df_pat_g = df_pat_g[df_pat_g[col_pat].dt.year == int(anio_sel_g)]
+                    
+                if not df_pat_g.empty:
+                    df_pat_g["Mes_Num"] = df_pat_g[col_pat].dt.month
+                    df_pat_g["Anio_Num"] = df_pat_g[col_pat].dt.year
+                    df_pat_g["Mes_Nom"] = df_pat_g["Mes_Num"].map(MESES_ESP) + " " + df_pat_g["Anio_Num"].astype(str)
+                    
+                    # Agrupamos por Mes y por Marca
+                    res_pat = df_pat_g.groupby(["Mes_Num", "Mes_Nom", "Marca_Graf"]).size().reset_index(name="Cantidad").sort_values("Mes_Num")
+                    
+                    fig_pat = px.bar(
+                        res_pat, 
+                        x="Mes_Nom", 
+                        y="Cantidad", 
+                        color="Marca_Graf",
+                        barmode="group",  # CLAVE: Pone las barras de Peugeot y Citroën una al lado de la otra
+                        title=f"🚗 Patentamientos por Mes y Marca ({anio_sel_g})",
+                        text_auto=True,
+                        color_discrete_map=MAPA_COLORES_MARCA,
+                        template="plotly_white"
+                    )
+                    fig_pat.update_layout(
+                        xaxis_title="Mes", 
+                        yaxis_title="Unidades Patentadas", 
+                        height=350,
+                        xaxis=dict(tickangle=-30),
+                        legend_title="Marca",
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    )
+                    st.plotly_chart(fig_pat, use_container_width=True)
+                else:
+                    st.info(f"No hay patentamientos cargados para el año {anio_sel_g}.")
             else:
-                st.info(f"No hay datos de Patentamientos válidos para {anio_sel_g}.")
+                st.error(f"❌ No se encontró la columna '{col_pat}'.")
         
-        # GRÁFICO 2: ENTREGAS POR MES (EN ESPAÑOL - CORTE A FECHA HOY)
+        # =========================================================
+        # GRÁFICO 2: ENTREGAS POR MES Y POR MARCA (TOTAL SHEET)
+        # =========================================================
         with col_g2:
-            df_ent_g = df_ho[df_ho["Fecha de confirmacion de entrega"].notna()].copy()
+            df_ent_g = df_base.copy()
+            col_entrega = "Fecha de confirmacion de entrega"
             
-            # 1. Filtro de años válidos (2020 a 2030)
-            df_ent_g = df_ent_g[(df_ent_g["Fecha de confirmacion de entrega"].dt.year >= 2020) & (df_ent_g["Fecha de confirmacion de entrega"].dt.year <= 2030)]
-            
-            # 2. FILTRO CLAVE: Excluir fechas futuras que no hayan ocurrido aún (corte a hoy)
-            hoy_actual = pd.to_datetime(datetime.now().date())
-            df_ent_g = df_ent_g[df_ent_g["Fecha de confirmacion de entrega"] <= hoy_actual]
-            
-            # 3. Filtro según el año seleccionado en el desplegable
-            if anio_sel_g != "Todos":
-                df_ent_g = df_ent_g[df_ent_g["Fecha de confirmacion de entrega"].dt.year == int(anio_sel_g)]
+            if col_entrega in df_ent_g.columns:
+                df_ent_g[col_entrega] = pd.to_datetime(df_ent_g[col_entrega], dayfirst=True, errors='coerce')
+                df_ent_g = df_ent_g[df_ent_g[col_entrega].notna()].copy()
+                df_ent_g = normalizar_marca(df_ent_g)
                 
-            if not df_ent_g.empty:
-                df_ent_g["Mes_Num"] = df_ent_g["Fecha de confirmacion de entrega"].dt.month
-                df_ent_g["Anio_Num"] = df_ent_g["Fecha de confirmacion de entrega"].dt.year
-                df_ent_g["Mes_Nom"] = df_ent_g["Mes_Num"].map(MESES_ESP) + " " + df_ent_g["Anio_Num"].astype(str)
-                
-                res_ent = df_ent_g.groupby(["Mes_Num", "Mes_Nom"]).size().reset_index(name="Cantidad").sort_values("Mes_Num")
-                
-                fig_ent = px.bar(
-                    res_ent, x="Mes_Nom", y="Cantidad",
-                    title=f"🤝 Entregas por Mes ({anio_sel_g}) - Efectivas",
-                    text_auto=True,
-                    color_discrete_sequence=['#2ecc71'],
-                    template="plotly_white"
-                )
-                fig_ent.update_layout(
-                    xaxis_title="Mes", 
-                    yaxis_title="Cantidad", 
-                    height=320,
-                    xaxis=dict(tickangle=-30)
-                )
-                st.plotly_chart(fig_ent, use_container_width=True)
+                # Filtro según el año seleccionado en el desplegable
+                if anio_sel_g != "Todos":
+                    df_ent_g = df_ent_g[df_ent_g[col_entrega].dt.year == int(anio_sel_g)]
+                    
+                if not df_ent_g.empty:
+                    df_ent_g["Mes_Num"] = df_ent_g[col_entrega].dt.month
+                    df_ent_g["Anio_Num"] = df_ent_g[col_entrega].dt.year
+                    df_ent_g["Mes_Nom"] = df_ent_g["Mes_Num"].map(MESES_ESP) + " " + df_ent_g["Anio_Num"].astype(str)
+                    
+                    # Agrupamos por Mes y por Marca
+                    res_ent = df_ent_g.groupby(["Mes_Num", "Mes_Nom", "Marca_Graf"]).size().reset_index(name="Cantidad").sort_values("Mes_Num")
+                    
+                    fig_ent = px.bar(
+                        res_ent, 
+                        x="Mes_Nom", 
+                        y="Cantidad", 
+                        color="Marca_Graf",
+                        barmode="group",  # CLAVE: Pone las barras de Peugeot y Citroën una al lado de la otra
+                        title=f"🤝 Entregas por Mes y Marca ({anio_sel_g})",
+                        text_auto=True,
+                        color_discrete_map=MAPA_COLORES_MARCA,
+                        template="plotly_white"
+                    )
+                    fig_ent.update_layout(
+                        xaxis_title="Mes", 
+                        yaxis_title="Unidades Entregadas", 
+                        height=350,
+                        xaxis=dict(tickangle=-30),
+                        legend_title="Marca",
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    )
+                    st.plotly_chart(fig_ent, use_container_width=True)
+                else:
+                    st.info(f"No hay entregas cargadas para el año {anio_sel_g}.")
             else:
-                st.info(f"No hay datos de Entregas efectivos válidos para {anio_sel_g}.")
+                st.error(f"❌ No se encontró la columna '{col_entrega}'.")
         
         st.divider()
         
