@@ -152,7 +152,58 @@ try:
     # ---------------------------------------------------------
     # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS (EN ESPERA)
     # ---------------------------------------------------------
-    # --- GENERACIÓN DE LINK INTELIGENTE DE WHATSAPP WEB ---
+    with tab_animacion:
+        st.header("📣 Animación de Encuesta de la Marca")
+        st.write("Listado de clientes con estado **En Espera** para seguimiento y animación de respuestas.")
+        
+        # 1. Búsqueda y normalización de la columna Estado de la marca
+        col_em = "Estado de la marca"
+        if col_em not in df.columns:
+            col_encontrada = [c for c in df.columns if c.upper().strip() == "ESTADO DE LA MARCA"]
+            if col_encontrada:
+                col_em = col_encontrada[0]
+            else:
+                st.error("❌ No se encontró la columna 'Estado de la marca' en la hoja de Google Sheets.")
+        
+        df_anim = pd.DataFrame()
+        
+        if col_em in df.columns:
+            # Filtro estricto para casos en espera
+            df_anim = df[df[col_em].astype(str).str.strip().str.upper() == "EN ESPERA"].copy()
+            
+            # --- SECCIÓN DE LOS 3 FILTROS SOLICITADOS ---
+            st.divider()
+            f_col1, f_col2, f_col3 = st.columns(3)
+            
+            marcas_anim = sorted(df_anim["Marca"].dropna().unique()) if "Marca" in df_anim.columns else []
+            sel_marca = f_col1.multiselect("📌 Filtrar por Marca", options=marcas_anim, key="anim_marca")
+            
+            canales_anim = sorted(df_anim["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df_anim.columns else []
+            sel_canal = f_col2.multiselect("📌 Filtrar por Canal de Venta", options=canales_anim, key="anim_canal")
+            
+            vendedores_anim = sorted(df_anim["Vendedor"].dropna().unique()) if "Vendedor" in df_anim.columns else []
+            sel_vend = f_col3.multiselect("📌 Filtrar por Vendedor", options=vendedores_anim, key="anim_vend")
+            
+            # Aplicamos los filtros seleccionados
+            if sel_marca:
+                df_anim = df_anim[df_anim["Marca"].isin(sel_marca)]
+            if sel_canal:
+                df_anim = df_anim[df_anim["Canal de Venta"].isin(sel_canal)]
+            if sel_vend:
+                df_anim = df_anim[df_anim["Vendedor"].isin(sel_vend)]
+                
+            # --- MÉTRICA DE RESULTADOS Y BUSCADOR RÁPIDO ---
+            st.divider()
+            m_col1, m_col2 = st.columns([1, 3])
+            m_col1.metric("🔔 Total a Animar", f"{len(df_anim)} clientes")
+            
+            with m_col2:
+                busq_anim = st.text_input("🔍 Búsqueda rápida por Cliente, Teléfono o E-mail:", key="busq_anim")
+                if busq_anim:
+                    mask_anim = df_anim.apply(lambda row: row.astype(str).str.contains(busq_anim, case=False).any(), axis=1)
+                    df_anim = df_anim[mask_anim]
+
+            # --- GENERACIÓN DE LINK INTELIGENTE DE WHATSAPP WEB ---
             def crear_link_whatsapp(row):
                 asesor = str(row.get("Vendedor", "")).strip().upper()
                 cliente = str(row.get("Cliente", "el cliente")).strip()
@@ -188,6 +239,7 @@ try:
                 
                 # Link directo a WhatsApp Web
                 return f"https://web.whatsapp.com/send?phone={numero_asesor}&text={texto_encoded}"
+
             # Creamos la columna de link por fila
             df_anim["📲 WhatsApp"] = df_anim.apply(crear_link_whatsapp, axis=1)
 
