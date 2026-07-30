@@ -279,44 +279,51 @@ try:
         st.divider()
 
         # =========================================================
-        # 3. AUDITORÍA DE CUELLOS DE BOTELLA (FILTRO AÑO + MATRIZ + GRÁFICO)
+        # 3. SEGUIMIENTO OPERATIVO (ENTREGADOS SIN HAND OVER BY ESTADO)
         # =========================================================
-        st.write("### 🚨 Auditoría de Cuellos de Botella (Pendientes de Hand Over)")
+        st.write("### 📌 Seguimiento Operativo: Pendientes de Hand Over")
         
-        # --- FILTRO DE AÑO BASADO EN FECHA DE CONFIRMACIÓN DE ENTREGA ---
-        df_entregas_base = df_ho.copy()
         col_entrega_ho = "Fecha de confirmacion de entrega"
+        col_ho_fecha = "Fecha de Hand over"
         
-        if col_entrega_ho in df_entregas_base.columns:
-            df_entregas_base[col_entrega_ho] = pd.to_datetime(df_entregas_base[col_entrega_ho], dayfirst=True, errors='coerce')
-            anios_ent = df_entregas_base[col_entrega_ho].dt.year.dropna().unique()
+        # 1. PASO 1: Tomamos únicamente los autos que TENGAN fecha de entrega confirmada
+        df_entregados_real = df_ho.copy()
+        if col_entrega_ho in df_entregados_real.columns:
+            df_entregados_real[col_entrega_ho] = pd.to_datetime(df_entregados_real[col_entrega_ho], dayfirst=True, errors='coerce')
+            df_entregados_real = df_entregados_real[df_entregados_real[col_entrega_ho].notna()].copy()
+            
+            anios_ent = df_entregados_real[col_entrega_ho].dt.year.dropna().unique()
             anios_validos_sem = sorted([int(a) for a in anios_ent if 2020 <= a <= 2030], reverse=True)
         else:
             anios_validos_sem = [2026]
 
         c_tit_sem, c_anio_sem = st.columns([3, 1])
         anio_sel_sem = c_anio_sem.selectbox(
-            "📅 Año (según Confirmación Entrega):", 
+            "📅 Año (según Confirmación de Entrega):", 
             ["Todos"] + (anios_validos_sem if anios_validos_sem else [2026]), 
             key="ho_anio_sem"
         )
 
-        # --- FILTRADO DE CASOS CRÍTICOS (SIN HAND OVER Y POR AÑO DE ENTREGA) ---
-        df_criticos = df_ho[~df_ho['TIENE_HO']].copy()
-        
-        if col_entrega_ho in df_criticos.columns:
-            df_criticos[col_entrega_ho] = pd.to_datetime(df_criticos[col_entrega_ho], dayfirst=True, errors='coerce')
-            if anio_sel_sem != "Todos":
-                df_criticos = df_criticos[df_criticos[col_entrega_ho].dt.year == int(anio_sel_sem)]
+        # 2. PASO 2: Filtrar año seleccionado
+        if anio_sel_sem != "Todos" and col_entrega_ho in df_entregados_real.columns:
+            df_entregados_real = df_entregados_real[df_entregados_real[col_entrega_ho].dt.year == int(anio_sel_sem)]
+
+        # 3. PASO 3: DE ESOS ENTREGADOS, NOS QUEDAMOS SOLO CON LOS QUE TIENEN FECHA DE HANNOVER VACÍA (FALTAN HANNOVER)
+        if col_ho_fecha in df_entregados_real.columns:
+            df_criticos = df_entregados_real[df_entregados_real[col_ho_fecha].isna()].copy()
+        else:
+            df_criticos = df_entregados_real[~df_entregados_real['TIENE_HO']].copy()
 
         if not df_criticos.empty:
+            # Preparamos columnas de Mes de Entrega en español
             df_criticos["Mes_Num_Ent"] = df_criticos[col_entrega_ho].dt.month.fillna(0).astype(int)
             df_criticos["Mes_Nom_Ent"] = df_criticos["Mes_Num_Ent"].map(MESES_ESP).fillna("Sin Fecha")
             
             col_tabla_matriz, col_graf_sem = st.columns([3, 2])
             
             with col_tabla_matriz:
-                st.write("#### 📋 Matriz Mensual de Estado Interno")
+                st.write("#### 📋 Matriz Mensual por Estado Interno")
+                # Creamos la tabla cruzada: Filas=ESTADO INTERNO, Columnas=Meses de Entrega
                 tabla_cruzada = pd.crosstab(
                     index=df_criticos[col_ei], 
                     columns=df_criticos["Mes_Nom_Ent"], 
@@ -324,6 +331,7 @@ try:
                     margins_name="TOTAL"
                 )
                 
+                # Ordenamos las columnas cronológicamente (Ene, Feb, Mar... + TOTAL)
                 orden_meses = [MESES_ESP[m] for m in sorted(MESES_ESP.keys()) if MESES_ESP[m] in tabla_cruzada.columns]
                 extras = [c for c in tabla_cruzada.columns if c not in orden_meses and c != "TOTAL"]
                 if "TOTAL" in tabla_cruzada.columns:
@@ -369,6 +377,7 @@ try:
         modo_ex = f_col3.radio("📌 Vista de Tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True, key="ex_modo")
         busq_ex = f_col4.text_input("🔍 Búsqueda rápida:", key="ex_busq", placeholder="Cliente, chasis, patente...")
         
+        # Filtros y renderizado de la tabla final
         df_final_ex = df_ho.copy()
         if mes_sel_ex != "Todos":
             df_final_ex = df_final_ex[df_final_ex["Mes_Display"] == mes_sel_ex]
@@ -382,7 +391,7 @@ try:
             df_mostrar_ex = df_mostrar_ex[mask]
             
         cols_ok_ex = [c for c in COLUMNAS_HO if c in df_mostrar_ex.columns]
-        st.dataframe(df_mostrar_ex[cols_ok_ex], use_container_width=True, hide_index=True, height=450)
+        st.dataframe(df_mostrar_ex[cols_ok_ex], use_container_width=True, hide_index=True, height=450)        
 
     # ---------------------------------------------------------
     # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS (EN ESPERA)
