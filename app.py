@@ -16,7 +16,6 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
 
 # --- DICCIONARIO DE TELÉFONOS DE LOS ASESORES ---
-# Podés agregar más vendedores siguiendo exactamente este formato: "NOMBRE EN SHEETS": "NUMERO CON CODIGO DE PAIS Y AREA"
 TELEFONOS_ASESORES = {
     "MARCELO CISNEROS": "5493886868562",
     "OLMOS MARIO": "5493874854123"
@@ -30,7 +29,7 @@ COLUMNAS_HO = [
     "Estado", "Fecha de confirmacion de entrega", "ESTADO INTERNO", "Fecha de Hand over"
 ]
 
-# Columnas exactas solicitadas para la Tabla de Animación (Sin Chasis y Sin Marca)
+# Columnas exactas solicitadas para la Tabla de Animación
 COLUMNAS_ANIMACION = [
     "Canal de Venta", 
     "Vendedor", 
@@ -68,7 +67,7 @@ try:
     if filtro_canal:
         df = df[df["Canal de Venta"].isin(filtro_canal)]
 
-    # --- PROCESAMIENTO GLOBAL DE FECHAS ---
+    # --- PROCESAMIENTO GLOBAL DE FECHAS (BLINDADO PARA EVITAR NULOS EN FECHAS DE SHEETS) ---
     cols_a_fecha = [
         "Fecha de Patentamiento", "Fecha de Hand over", "Fecha de Facturacion",
         "Fecha que el Gestor Retira Doc", "Fecha Disponibilidad Papeles",
@@ -76,7 +75,8 @@ try:
     ]
     for c in cols_a_fecha:
         if c in df.columns:
-            df[c] = pd.to_datetime(df[c], errors='coerce')
+            # Limpiamos espacios y forzamos lectura latina día/mes/año con formato mixto
+            df[c] = pd.to_datetime(df[c].astype(str).str.strip(), dayfirst=True, format="mixed", errors='coerce')
 
     # Auxiliares globales
     df['TIENE_HO'] = df["Fecha de Hand over"].notna()
@@ -109,19 +109,16 @@ try:
     with tab_ho:
         st.header("🛡️ Gestión de Hand Over y Garantías")
         
-        # NORMALIZACIÓN INTERNA DE CATEGORÍAS
         df_ho = df.copy()
         if col_ei in df_ho.columns:
             df_ho[col_ei] = df_ho[col_ei].astype(str).str.strip().str.upper()
             df_ho[col_ei] = df_ho[col_ei].replace({"NAN": "SIN ESTADO", "NONE": "SIN ESTADO", "": "SIN ESTADO"})
 
-        # DICCIONARIO DE TRADUCCIÓN DE MESES AL ESPAÑOL
         MESES_ESP = {
             1: "Ene", 2: "Feb", 3: "Mar", 4: "Abr", 5: "May", 6: "Jun",
             7: "Jul", 8: "Ago", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dic"
         }
 
-        # FUNCIÓN AUXILIAR PARA NORMALIZAR MARCA
         def normalizar_marca(df_input):
             if "Marca" not in df_input.columns:
                 df_input["Marca_Graf"] = "OTRA"
@@ -131,24 +128,21 @@ try:
                                      np.where(marca_limpia.str.contains("CITRO", na=False), "CITROËN", "OTRA"))
             return df_input
 
-        # COLORES OFICIALES POR MARCA
         MAPA_COLORES_MARCA = {
-            "PEUGEOT": "#1e3d59",  # Azul Peugeot
-            "CITROËN": "#ff6e40",  # Naranja Citroën
+            "PEUGEOT": "#1e3d59",
+            "CITROËN": "#ff6e40",
             "OTRA": "#b0bec5"
         }
 
-        # FUNCIÓN CLAVE PARA PROCESAR EL DETALLE DE CANALES EN EL HOVER
         def procesar_datos_grafico(df_input, col_fecha, anio_sel):
             if col_fecha not in df_input.columns:
                 return pd.DataFrame()
             
             df_temp = df_input.copy()
-            df_temp[col_fecha] = pd.to_datetime(df_temp[col_fecha], dayfirst=True, errors='coerce')
+            df_temp[col_fecha] = pd.to_datetime(df_temp[col_fecha].astype(str).str.strip(), dayfirst=True, format="mixed", errors='coerce')
             df_temp = df_temp[df_temp[col_fecha].notna()].copy()
             df_temp = normalizar_marca(df_temp)
             
-            # Limpieza del Canal de Venta
             if "Canal de Venta" in df_temp.columns:
                 df_temp["Canal de Venta"] = df_temp["Canal de Venta"].fillna("Sin Canal").astype(str).str.strip()
             else:
@@ -164,7 +158,6 @@ try:
             df_temp["Anio_Num"] = df_temp[col_fecha].dt.year
             df_temp["Mes_Nom"] = df_temp["Mes_Num"].map(MESES_ESP) + " " + df_temp["Anio_Num"].astype(str)
             
-            # Armado de desglose por Canal de Venta
             list_res = []
             for (m_num, m_nom, marca), group in df_temp.groupby(["Mes_Num", "Mes_Nom", "Marca_Graf"]):
                 cant_total = len(group)
@@ -188,8 +181,8 @@ try:
         # =========================================================
         with st.expander("📊 Evolución Mensual Operativa (Patentamientos y Entregas)", expanded=True):
             
-            y_pat = pd.to_datetime(df_base["Fecha de Patentamiento"], dayfirst=True, errors='coerce').dt.year.dropna()
-            y_ent = pd.to_datetime(df_base["Fecha de confirmacion de entrega"], dayfirst=True, errors='coerce').dt.year.dropna()
+            y_pat = pd.to_datetime(df_base["Fecha de Patentamiento"].astype(str).str.strip(), dayfirst=True, format="mixed", errors='coerce').dt.year.dropna()
+            y_ent = pd.to_datetime(df_base["Fecha de confirmacion de entrega"].astype(str).str.strip(), dayfirst=True, format="mixed", errors='coerce').dt.year.dropna()
             anios_reales = sorted(list(set(y_pat.tolist() + y_ent.tolist())), reverse=True)
             anios_validos = [int(a) for a in anios_reales if 2020 <= a <= 2030]
             
@@ -199,7 +192,6 @@ try:
             
             col_g1, col_g2 = st.columns(2)
             
-            # --- GRÁFICO 1: PATENTAMIENTOS ---
             with col_g1:
                 res_pat = procesar_datos_grafico(df_base, "Fecha de Patentamiento", anio_sel_g)
                 if not res_pat.empty:
@@ -230,7 +222,6 @@ try:
                 else:
                     st.info(f"No hay patentamientos cargados para el año {anio_sel_g}.")
 
-            # --- GRÁFICO 2: ENTREGAS ---
             with col_g2:
                 res_ent = procesar_datos_grafico(df_base, "Fecha de confirmacion de entrega", anio_sel_g)
                 if not res_ent.empty:
@@ -262,12 +253,11 @@ try:
                     st.info(f"No hay entregas cargadas para el año {anio_sel_g}.")
 
         # =========================================================
-        # 2. MÉTRICAS CLAVE (KPIs) - FUERA Y ABAJO DEL DESPLEGABLE
+        # 2. MÉTRICAS CLAVE (KPIs)
         # =========================================================
         st.divider()
         pat_v = df_ho[df_ho["Fecha de Patentamiento"].notna()]
         
-        # AJUSTE: Contamos entregas efectivamente desde la columna 'Estado' (o si tiene fecha confirmada)
         if "Estado" in df_ho.columns:
             ent_v = df_ho[df_ho["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
         else:
@@ -292,7 +282,6 @@ try:
         col_entrega_ho = "Fecha de confirmacion de entrega"
         col_ho_fecha = "Fecha de Hand over"
         
-        # 1. PASO 1: Tomamos autos según la columna 'Estado' que diga ENTREGADO y tengan fecha de entrega confirmada
         df_entregados_real = df_ho.copy()
         if "Estado" in df_entregados_real.columns:
             df_entregados_real = df_entregados_real[
@@ -300,7 +289,10 @@ try:
             ].copy()
             
         if col_entrega_ho in df_entregados_real.columns:
-            df_entregados_real[col_entrega_ho] = pd.to_datetime(df_entregados_real[col_entrega_ho], dayfirst=True, errors='coerce')
+            df_entregados_real[col_entrega_ho] = pd.to_datetime(
+                df_entregados_real[col_entrega_ho].astype(str).str.strip(), 
+                dayfirst=True, format="mixed", errors='coerce'
+            )
             df_entregados_real = df_entregados_real[df_entregados_real[col_entrega_ho].notna()].copy()
             
             anios_ent = df_entregados_real[col_entrega_ho].dt.year.dropna().unique()
@@ -315,11 +307,9 @@ try:
             key="ho_anio_sem"
         )
 
-        # 2. PASO 2: Filtrar año seleccionado
         if anio_sel_sem != "Todos" and col_entrega_ho in df_entregados_real.columns:
             df_entregados_real = df_entregados_real[df_entregados_real[col_entrega_ho].dt.year == int(anio_sel_sem)]
 
-        # 3. PASO 3: FILTRO AGRESIVO DE VACÍOS (Igual a Google Sheets para que cuente las 24 filas)
         if col_ho_fecha in df_entregados_real.columns:
             ho_limpio = df_entregados_real[col_ho_fecha].astype(str).str.strip().str.lower()
             mascara_vacios = ho_limpio.isin(["nan", "none", "nat", "", "-", "null"]) | df_entregados_real[col_ho_fecha].isna()
@@ -327,11 +317,9 @@ try:
         else:
             df_criticos = df_entregados_real[~df_entregados_real['TIENE_HO']].copy()
 
-        # Variable para capturar el clic en el gráfico
         estado_clickeado = None
 
         if not df_criticos.empty:
-            # Preparamos columnas de Mes de Entrega en español
             df_criticos["Mes_Num_Ent"] = df_criticos[col_entrega_ho].dt.month.fillna(0).astype(int)
             df_criticos["Mes_Nom_Ent"] = df_criticos["Mes_Num_Ent"].map(MESES_ESP).fillna("Sin Fecha")
             
@@ -339,7 +327,6 @@ try:
             
             with col_tabla_matriz:
                 st.write("#### 📋 Matriz Mensual por Estado Interno")
-                # Creamos la tabla cruzada: Filas=ESTADO INTERNO, Columnas=Meses de Entrega
                 tabla_cruzada = pd.crosstab(
                     index=df_criticos[col_ei], 
                     columns=df_criticos["Mes_Nom_Ent"], 
@@ -347,7 +334,6 @@ try:
                     margins_name="TOTAL"
                 )
                 
-                # Ordenamos las columnas cronológicamente (Ene, Feb, Mar... + TOTAL)
                 orden_meses = [MESES_ESP[m] for m in sorted(MESES_ESP.keys()) if MESES_ESP[m] in tabla_cruzada.columns]
                 extras = [c for c in tabla_cruzada.columns if c not in orden_meses and c != "TOTAL"]
                 if "TOTAL" in tabla_cruzada.columns:
@@ -372,7 +358,6 @@ try:
                 )
                 fig_sem.update_layout(showlegend=False, height=280, margin=dict(t=40, l=10, r=10, b=10))
                 
-                # Hacemos el gráfico interactivo para capturar la barra clickeada
                 evento_grafico = st.plotly_chart(fig_sem, use_container_width=True, on_select="rerun", key="g_sem_ho_int")
                 
                 if evento_grafico and "selection" in evento_grafico and evento_grafico["selection"]["points"]:
@@ -387,7 +372,6 @@ try:
         # =========================================================
         st.write("### 📋 Detalle y Gestión de Unidades")
         
-        # Si se hizo clic en el gráfico, mostramos aviso visual y botón para quitar filtro
         if estado_clickeado:
             c_aviso, c_boton = st.columns([4, 1])
             c_aviso.info(f"🔎 Filtrando por la barra seleccionada en el gráfico: **ESTADO INTERNO = {estado_clickeado}**")
@@ -402,7 +386,6 @@ try:
         
         est_disponibles = sorted([e for e in df_ho[col_ei].unique() if e not in ["NAN", ""]])
         
-        # Si hiciste clic en la barra, el menú desplegable toma automáticamente ese estado
         index_default = 0
         if estado_clickeado and estado_clickeado in est_disponibles:
             index_default = est_disponibles.index(estado_clickeado) + 1
@@ -412,12 +395,10 @@ try:
         modo_ex = f_col3.radio("📌 Vista de Tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True, key="ex_modo")
         busq_ex = f_col4.text_input("🔍 Búsqueda rápida:", key="ex_busq", placeholder="Cliente, chasis, patente...")
         
-        # Filtros y renderizado de la tabla final
         df_final_ex = df_ho.copy()
         if mes_sel_ex != "Todos":
             df_final_ex = df_final_ex[df_final_ex["Mes_Display"] == mes_sel_ex]
             
-        # Priorizamos el filtro de la barra clickeada si existe, o el selectbox normal
         estado_a_filtrar = estado_clickeado if estado_clickeado else ei_sel_ex
         if estado_a_filtrar != "Todos":
             df_final_ex = df_final_ex[df_final_ex[col_ei] == estado_a_filtrar]
