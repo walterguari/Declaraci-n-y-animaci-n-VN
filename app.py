@@ -75,7 +75,6 @@ try:
     ]
     for c in cols_a_fecha:
         if c in df.columns:
-            # Limpiamos espacios y forzamos lectura latina día/mes/año con formato mixto
             df[c] = pd.to_datetime(df[c].astype(str).str.strip(), dayfirst=True, format="mixed", errors='coerce')
 
     # Auxiliares globales
@@ -368,42 +367,26 @@ try:
         st.divider()
 
         # =========================================================
-        # 4. BARRA DE FILTROS Y TABLA DETALLADA (LISTADO OPERATIVO)
+        # 4. TABLA DETALLADA (INTERACTIVA SOLAMENTE CON EL GRÁFICO SUPERIOR)
         # =========================================================
         st.write("### 📋 Detalle y Gestión de Unidades")
         
+        c_aviso, c_boton, c_busq = st.columns([3, 1, 2])
+        
         if estado_clickeado:
-            c_aviso, c_boton = st.columns([4, 1])
-            c_aviso.info(f"🔎 Filtrando por la barra seleccionada en el gráfico: **ESTADO INTERNO = {estado_clickeado}**")
+            c_aviso.info(f"🔎 Filtrando por la barra seleccionada en el gráfico: **{estado_clickeado}**")
             if c_boton.button("❌ Quitar filtro de barra", use_container_width=True):
                 st.rerun()
-
-        f_col1, f_col2, f_col3, f_col4 = st.columns([2, 2, 2, 2])
-        
-        meses_pendientes = df_ho[~df_ho['TIENE_HO']].dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
-        opciones_meses = meses_pendientes["Mes_Display"].unique().tolist()
-        mes_sel_ex = f_col1.selectbox("📅 Mes de Patentamiento:", ["Todos"] + opciones_meses, key="ex_mes")
-        
-        est_disponibles = sorted([e for e in df_ho[col_ei].unique() if e not in ["NAN", ""]])
-        
-        index_default = 0
-        if estado_clickeado and estado_clickeado in est_disponibles:
-            index_default = est_disponibles.index(estado_clickeado) + 1
+        else:
+            c_aviso.caption("💡 Mostrando todos los casos de la matriz. Hacé clic en una barra del gráfico superior para filtrar por estado.")
             
-        ei_sel_ex = f_col2.selectbox("🏷️ Estado Interno:", ["Todos"] + est_disponibles, index=index_default, key="ex_ei_dinamico")
+        busq_ex = c_busq.text_input("🔍 Búsqueda rápida:", key="ex_busq", placeholder="Cliente, chasis, patente...")
         
-        modo_ex = f_col3.radio("📌 Vista de Tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True, key="ex_modo")
-        busq_ex = f_col4.text_input("🔍 Búsqueda rápida:", key="ex_busq", placeholder="Cliente, chasis, patente...")
+        # Sincronizamos exactamente con la base de la matriz y aplicamos el filtro si hiciste clic en una barra
+        df_mostrar_ex = df_criticos.copy()
         
-        df_final_ex = df_ho.copy()
-        if mes_sel_ex != "Todos":
-            df_final_ex = df_final_ex[df_final_ex["Mes_Display"] == mes_sel_ex]
-            
-        estado_a_filtrar = estado_clickeado if estado_clickeado else ei_sel_ex
-        if estado_a_filtrar != "Todos":
-            df_final_ex = df_final_ex[df_final_ex[col_ei] == estado_a_filtrar]
-            
-        df_mostrar_ex = df_final_ex[~df_final_ex['TIENE_HO']] if modo_ex == "Solo Pendientes ⚠️" else df_final_ex
+        if estado_clickeado:
+            df_mostrar_ex = df_mostrar_ex[df_mostrar_ex[col_ei] == estado_clickeado]
         
         if busq_ex:
             mask = df_mostrar_ex.apply(lambda row: row.astype(str).str.contains(busq_ex, case=False).any(), axis=1)
