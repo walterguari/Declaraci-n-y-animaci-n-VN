@@ -308,9 +308,11 @@ try:
         if anio_sel_sem != "Todos" and col_entrega_ho in df_entregados_real.columns:
             df_entregados_real = df_entregados_real[df_entregados_real[col_entrega_ho].dt.year == int(anio_sel_sem)]
 
-        # 3. PASO 3: DE ESOS ENTREGADOS, NOS QUEDAMOS SOLO CON LOS QUE TIENEN FECHA DE HANNOVER VACÍA (FALTAN HANNOVER)
+        # 3. PASO 3: FILTRO AGRESIVO DE VACÍOS (Igual a Google Sheets para que cuente las 24 filas)
         if col_ho_fecha in df_entregados_real.columns:
-            df_criticos = df_entregados_real[df_entregados_real[col_ho_fecha].isna()].copy()
+            ho_limpio = df_entregados_real[col_ho_fecha].astype(str).str.strip().str.lower()
+            mascara_vacios = ho_limpio.isin(["nan", "none", "nat", "", "-", "null"]) | df_entregados_real[col_ho_fecha].isna()
+            df_criticos = df_entregados_real[mascara_vacios].copy()
         else:
             df_criticos = df_entregados_real[~df_entregados_real['TIENE_HO']].copy()
 
