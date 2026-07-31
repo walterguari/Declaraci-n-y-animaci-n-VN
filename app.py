@@ -266,7 +266,13 @@ try:
         # =========================================================
         st.divider()
         pat_v = df_ho[df_ho["Fecha de Patentamiento"].notna()]
-        ent_v = df_ho[df_ho["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
+        
+        # AJUSTE: Contamos entregas efectivamente desde la columna 'Estado' (o si tiene fecha confirmada)
+        if "Estado" in df_ho.columns:
+            ent_v = df_ho[df_ho["Estado"].astype(str).str.upper().str.contains('ENTREGADO', na=False)]
+        else:
+            ent_v = df_ho[df_ho["Fecha de confirmacion de entrega"].notna()]
+            
         fal_v = pat_v[~pat_v['TIENE_HO']]
         eficacia = (len(pat_v[pat_v['TIENE_HO']]) / len(pat_v) * 100) if len(pat_v) > 0 else 0
         
@@ -277,6 +283,7 @@ try:
         m4.metric("📈 % Eficacia", f"{eficacia:.1f}%")
 
         st.divider()
+
         # =========================================================
         # 3. SEGUIMIENTO OPERATIVO (ENTREGADOS SIN HAND OVER BY ESTADO)
         # =========================================================
@@ -285,8 +292,13 @@ try:
         col_entrega_ho = "Fecha de confirmacion de entrega"
         col_ho_fecha = "Fecha de Hand over"
         
-        # 1. PASO 1: Tomamos únicamente los autos que TENGAN fecha de entrega confirmada
+        # 1. PASO 1: Tomamos autos según la columna 'Estado' que diga ENTREGADO y tengan fecha de entrega confirmada
         df_entregados_real = df_ho.copy()
+        if "Estado" in df_entregados_real.columns:
+            df_entregados_real = df_entregados_real[
+                df_entregados_real["Estado"].astype(str).str.strip().str.upper() == "ENTREGADO"
+            ].copy()
+            
         if col_entrega_ho in df_entregados_real.columns:
             df_entregados_real[col_entrega_ho] = pd.to_datetime(df_entregados_real[col_entrega_ho], dayfirst=True, errors='coerce')
             df_entregados_real = df_entregados_real[df_entregados_real[col_entrega_ho].notna()].copy()
@@ -347,7 +359,7 @@ try:
                 st.dataframe(tabla_cruzada, use_container_width=True, height=280)
             
             with col_graf_sem:
-                st.write("#### 📊 Distribución Visual (💡 Hacé clic en una barra para auditar abajo)")
+                st.write("#### 📊 Distribución Visual (💡 Hacé clic para filtrar abajo)")
                 conteo_ei = df_criticos[col_ei].value_counts().reset_index()
                 conteo_ei.columns = ["Estado Interno", "Cantidad"]
                 
@@ -417,7 +429,8 @@ try:
             df_mostrar_ex = df_mostrar_ex[mask]
             
         cols_ok_ex = [c for c in COLUMNAS_HO if c in df_mostrar_ex.columns]
-        st.dataframe(df_mostrar_ex[cols_ok_ex], use_container_width=True, hide_index=True, height=450)
+        st.dataframe(df_mostrar_ex[cols_ok_ex], use_container_width=True, hide_index=True, height=450)        
+
     # ---------------------------------------------------------
     # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS (EN ESPERA)
     # ---------------------------------------------------------
