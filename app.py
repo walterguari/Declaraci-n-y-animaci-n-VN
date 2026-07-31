@@ -277,7 +277,6 @@ try:
         m4.metric("📈 % Eficacia", f"{eficacia:.1f}%")
 
         st.divider()
-
         # =========================================================
         # 3. SEGUIMIENTO OPERATIVO (ENTREGADOS SIN HAND OVER BY ESTADO)
         # =========================================================
@@ -316,6 +315,9 @@ try:
         else:
             df_criticos = df_entregados_real[~df_entregados_real['TIENE_HO']].copy()
 
+        # Variable para capturar el clic en el gráfico
+        estado_clickeado = None
+
         if not df_criticos.empty:
             # Preparamos columnas de Mes de Entrega en español
             df_criticos["Mes_Num_Ent"] = df_criticos[col_entrega_ho].dt.month.fillna(0).astype(int)
@@ -345,7 +347,7 @@ try:
                 st.dataframe(tabla_cruzada, use_container_width=True, height=280)
             
             with col_graf_sem:
-                st.write("#### 📊 Distribución Visual")
+                st.write("#### 📊 Distribución Visual (💡 Hacé clic en una barra para auditar abajo)")
                 conteo_ei = df_criticos[col_ei].value_counts().reset_index()
                 conteo_ei.columns = ["Estado Interno", "Cantidad"]
                 
@@ -357,7 +359,12 @@ try:
                     template="plotly_white"
                 )
                 fig_sem.update_layout(showlegend=False, height=280, margin=dict(t=40, l=10, r=10, b=10))
-                st.plotly_chart(fig_sem, use_container_width=True, key="g_sem_ho")
+                
+                # Hacemos el gráfico interactivo para capturar la barra clickeada
+                evento_grafico = st.plotly_chart(fig_sem, use_container_width=True, on_select="rerun", key="g_sem_ho_int")
+                
+                if evento_grafico and "selection" in evento_grafico and evento_grafico["selection"]["points"]:
+                    estado_clickeado = evento_grafico["selection"]["points"][0]["y"]
         else:
             st.success(f"✅ ¡Excelente! No hay vehículos pendientes de Hand Over para el periodo seleccionado ({anio_sel_sem}).")
             
@@ -367,6 +374,14 @@ try:
         # 4. BARRA DE FILTROS Y TABLA DETALLADA (LISTADO OPERATIVO)
         # =========================================================
         st.write("### 📋 Detalle y Gestión de Unidades")
+        
+        # Si se hizo clic en el gráfico, mostramos aviso visual y botón para quitar filtro
+        if estado_clickeado:
+            c_aviso, c_boton = st.columns([4, 1])
+            c_aviso.info(f"🔎 Filtrando por la barra seleccionada en el gráfico: **ESTADO INTERNO = {estado_clickeado}**")
+            if c_boton.button("❌ Quitar filtro de barra", use_container_width=True):
+                st.rerun()
+
         f_col1, f_col2, f_col3, f_col4 = st.columns([2, 2, 2, 2])
         
         meses_pendientes = df_ho[~df_ho['TIENE_HO']].dropna(subset=["Fecha de Patentamiento"]).sort_values("Fecha de Patentamiento")
@@ -374,7 +389,13 @@ try:
         mes_sel_ex = f_col1.selectbox("📅 Mes de Patentamiento:", ["Todos"] + opciones_meses, key="ex_mes")
         
         est_disponibles = sorted([e for e in df_ho[col_ei].unique() if e not in ["NAN", ""]])
-        ei_sel_ex = f_col2.selectbox("🏷️ Estado Interno:", ["Todos"] + est_disponibles, key="ex_ei")
+        
+        # Si hiciste clic en la barra, el menú desplegable toma automáticamente ese estado
+        index_default = 0
+        if estado_clickeado and estado_clickeado in est_disponibles:
+            index_default = est_disponibles.index(estado_clickeado) + 1
+            
+        ei_sel_ex = f_col2.selectbox("🏷️ Estado Interno:", ["Todos"] + est_disponibles, index=index_default, key="ex_ei_dinamico")
         
         modo_ex = f_col3.radio("📌 Vista de Tabla:", ["Solo Pendientes ⚠️", "Todos"], horizontal=True, key="ex_modo")
         busq_ex = f_col4.text_input("🔍 Búsqueda rápida:", key="ex_busq", placeholder="Cliente, chasis, patente...")
@@ -383,8 +404,11 @@ try:
         df_final_ex = df_ho.copy()
         if mes_sel_ex != "Todos":
             df_final_ex = df_final_ex[df_final_ex["Mes_Display"] == mes_sel_ex]
-        if ei_sel_ex != "Todos":
-            df_final_ex = df_final_ex[df_final_ex[col_ei] == ei_sel_ex]
+            
+        # Priorizamos el filtro de la barra clickeada si existe, o el selectbox normal
+        estado_a_filtrar = estado_clickeado if estado_clickeado else ei_sel_ex
+        if estado_a_filtrar != "Todos":
+            df_final_ex = df_final_ex[df_final_ex[col_ei] == estado_a_filtrar]
             
         df_mostrar_ex = df_final_ex[~df_final_ex['TIENE_HO']] if modo_ex == "Solo Pendientes ⚠️" else df_final_ex
         
@@ -393,8 +417,7 @@ try:
             df_mostrar_ex = df_mostrar_ex[mask]
             
         cols_ok_ex = [c for c in COLUMNAS_HO if c in df_mostrar_ex.columns]
-        st.dataframe(df_mostrar_ex[cols_ok_ex], use_container_width=True, hide_index=True, height=450)        
-
+        st.dataframe(df_mostrar_ex[cols_ok_ex], use_container_width=True, hide_index=True, height=450)
     # ---------------------------------------------------------
     # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS (EN ESPERA)
     # ---------------------------------------------------------
