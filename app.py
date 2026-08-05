@@ -29,7 +29,7 @@ COLUMNAS_HO = [
     "Estado", "Fecha de confirmacion de entrega", "ESTADO INTERNO", "Fecha de Hand over"
 ]
 
-# Columnas exactas solicitadas para la Tabla de Animación
+# Columnas exactas solicitadas para la Tabla de Animación (Actualizado con fechas)
 COLUMNAS_ANIMACION = [
     "Canal de Venta", 
     "Vendedor", 
@@ -39,7 +39,11 @@ COLUMNAS_ANIMACION = [
     "Encuesta Temprana", 
     "Comentario Enc. Temp.", 
     "EI - Reco", 
-    "Comentario de la Encuesta interna"
+    "Comentario de la Encuesta interna",
+    "Fecha de invitación Inicial",
+    "Primera fecha de recordatorio",
+    "Segunda fecha de recordatorio",
+    "Fecha de Vencimento Del Trabajo de Campo"
 ]
 
 try:
@@ -71,7 +75,9 @@ try:
     cols_a_fecha = [
         "Fecha de Patentamiento", "Fecha de Hand over", "Fecha de Facturacion",
         "Fecha que el Gestor Retira Doc", "Fecha Disponibilidad Papeles",
-        "Fecha de confirmacion de entrega", "Fecha de Pedido de Preparacion" 
+        "Fecha de confirmacion de entrega", "Fecha de Pedido de Preparacion",
+        "Fecha de invitación Inicial", "Primera fecha de recordatorio",
+        "Segunda fecha de recordatorio", "Fecha de Vencimento Del Trabajo de Campo"
     ]
     for c in cols_a_fecha:
         if c in df.columns:
@@ -404,7 +410,7 @@ try:
         st.dataframe(df_mostrar_ex[cols_ok_ex], use_container_width=True, hide_index=True, height=450)        
 
     # ---------------------------------------------------------
-    # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS (EN ESPERA)
+    # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS (CON FECHAS NUEVAS)
     # ---------------------------------------------------------
     with tab_animacion:
         st.header("📣 Animación de Encuesta de la Marca")
@@ -464,8 +470,20 @@ try:
                     txt = str(val).strip()
                     return "Sin comentarios" if txt.lower() in ["nan", "none", "", "null", "-"] else txt
                 
+                def formatear_fecha(val):
+                    if pd.isna(val) or str(val).lower() in ["nan", "none", "", "nat", "null"]:
+                        return "Sin fecha"
+                    if isinstance(val, pd.Timestamp):
+                        return val.strftime("%d/%m/%Y")
+                    return str(val)
+                
                 com_temp = limpiar_texto(row.get("Comentario Enc. Temp."))
                 com_int = limpiar_texto(row.get("Comentario de la Encuesta interna"))
+                
+                f_inv = formatear_fecha(row.get("Fecha de invitación Inicial"))
+                f_r1 = formatear_fecha(row.get("Primera fecha de recordatorio"))
+                f_r2 = formatear_fecha(row.get("Segunda fecha de recordatorio"))
+                f_venc = formatear_fecha(row.get("Fecha de Vencimento Del Trabajo de Campo"))
                 
                 numero_asesor = TELEFONOS_ASESORES.get(asesor)
                 
@@ -476,7 +494,12 @@ try:
                     f"Hola, {asesor}! Tenes al cliente {canal} - {cliente} - (Tel: {telefono}) "
                     f"está pendiente de responder la encuesta de la marca de {marca} que le llego "
                     f"por email {email}. Por favor, de animarlo a que la responda.\n\n"
-                    f"A continuación te dejo todas las respuestas de las preguntas que se realizo:\n"
+                    f"📅 *Fechas Clave:*\n"
+                    f"• Invitación Inicial: {f_inv}\n"
+                    f"• 1° Recordatorio: {f_r1}\n"
+                    f"• 2° Recordatorio: {f_r2}\n"
+                    f"• Vencimiento Trabajo de Campo: {f_venc}\n\n"
+                    f"📝 *A continuación te dejo todas las respuestas previas:*\n"
                     f"• Comentario Enc. Temp.: {com_temp}\n"
                     f"• Comentario Encuesta Interna: {com_int}"
                 )
@@ -513,7 +536,11 @@ try:
                         display_text="Avisar a Vendedor"
                     ),
                     "Comentario Enc. Temp.": st.column_config.TextColumn("Comentario Enc. Temp.", width="medium"),
-                    "Comentario de la Encuesta interna": st.column_config.TextColumn("Comentario Encuesta Interna", width="large")
+                    "Comentario de la Encuesta interna": st.column_config.TextColumn("Comentario Encuesta Interna", width="large"),
+                    "Fecha de invitación Inicial": st.column_config.DateColumn("Invitación Inicial", format="DD/MM/YYYY"),
+                    "Primera fecha de recordatorio": st.column_config.DateColumn("1° Recordatorio", format="DD/MM/YYYY"),
+                    "Segunda fecha de recordatorio": st.column_config.DateColumn("2° Recordatorio", format="DD/MM/YYYY"),
+                    "Fecha de Vencimento Del Trabajo de Campo": st.column_config.DateColumn("Vencimiento", format="DD/MM/YYYY")
                 }
             )
             
