@@ -410,7 +410,7 @@ try:
         st.dataframe(df_mostrar_ex[cols_ok_ex], use_container_width=True, hide_index=True, height=450)        
 
     # ---------------------------------------------------------
-    # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS (CON FECHAS NUEVAS)
+    # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS (CON FECHAS NUEVAS Y CORRECCIÓN DE NULOS)
     # ---------------------------------------------------------
     with tab_animacion:
         st.header("📣 Animación de Encuesta de la Marca")
@@ -510,12 +510,22 @@ try:
 
             cols_anim_ok = [c for c in COLUMNAS_ANIMACION if c in df_anim.columns]
             cols_con_marca = ["Marca", "📲 WhatsApp"] + [c for c in cols_anim_ok if c != "Marca"]
-            df_tabla = df_anim[cols_con_marca].fillna("-").copy()
+            
+            # --- ESTA ES LA PARTE CORREGIDA ---
+            df_tabla = df_anim[cols_con_marca].copy()
+            
+            columnas_fecha = [
+                "Fecha de invitación Inicial",
+                "Primera fecha de recordatorio",
+                "Segunda fecha de recordatorio",
+                "Fecha de Vencimento Del Trabajo de Campo"
+            ]
             
             # Rellenamos con "-" solo las columnas que no son fechas
             for col in df_tabla.columns:
                 if col not in columnas_fecha:
                     df_tabla[col] = df_tabla[col].fillna("-")
+            # ----------------------------------
             
             def resaltar_canal(row):
                 estilos = [''] * len(row)
