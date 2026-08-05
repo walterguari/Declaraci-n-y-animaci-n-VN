@@ -510,7 +510,20 @@ try:
 
             cols_anim_ok = [c for c in COLUMNAS_ANIMACION if c in df_anim.columns]
             cols_con_marca = ["Marca", "📲 WhatsApp"] + [c for c in cols_anim_ok if c != "Marca"]
-            df_tabla = df_anim[cols_con_marca].fillna("-").copy()
+            df_tabla = df_anim[cols_con_marca].copy()
+            
+            # Lista de las columnas de fecha que NO deben llevar guion
+            columnas_fecha = [
+                "Fecha de invitación Inicial",
+                "Primera fecha de recordatorio",
+                "Segunda fecha de recordatorio",
+                "Fecha de Vencimento Del Trabajo de Campo"
+            ]
+            
+            # Rellenamos con "-" solo las columnas que no son fechas
+            for col in df_tabla.columns:
+                if col not in columnas_fecha:
+                    df_tabla[col] = df_tabla[col].fillna("-")
             
             def resaltar_canal(row):
                 estilos = [''] * len(row)
