@@ -77,9 +77,17 @@ try:
         if c in df.columns:
             df[c] = pd.to_datetime(df[c].astype(str).str.strip(), dayfirst=True, format="mixed", errors='coerce')
 
-    # Auxiliares globales
-    df['TIENE_HO'] = df["Fecha de Hand over"].notna()
-    df["Mes_Display"] = df["Fecha de Patentamiento"].dt.strftime('%b %Y')
+    # --- Auxiliares globales (Blindados) ---
+    if "Fecha de Hand over" in df.columns:
+        df['TIENE_HO'] = df["Fecha de Hand over"].notna()
+    else:
+        df['TIENE_HO'] = False
+        st.warning("⚠️ No se encontró la columna 'Fecha de Hand over' en la base de datos.")
+
+    if "Fecha de Patentamiento" in df.columns:
+        df["Mes_Display"] = df["Fecha de Patentamiento"].dt.strftime('%b %Y')
+    else:
+        df["Mes_Display"] = "Sin Fecha"
     
     # Estandarización de ESTADO INTERNO
     col_ei = "ESTADO INTERNO"
