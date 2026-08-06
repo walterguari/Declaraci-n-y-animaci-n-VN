@@ -95,7 +95,7 @@ try:
             st.error(f"❌ No se detecta la columna ESTADO INTERNO. Columnas disponibles: {list(df.columns)}")
             df[col_ei] = "SIN ESTADO"
 
-    # --- CREACIÓN DE PESTAÑAS (Solo 3) ---
+    # --- CREACIÓN DE PESTAÑAS ---
     tab_ho, tab_animacion, tab_tiempos = st.tabs([
         "🛡️ Gestión de Hand Over y Garantías", 
         "📣 Animación de Encuestas", 
@@ -301,11 +301,9 @@ try:
             if not fechas_futuras.empty:
                 st.warning(
                     f"⚠️ **Atención:** Se detectaron **{len(fechas_futuras)} registros** con 'Fecha de confirmacion de entrega' "
-                    f"posterior a hoy ({hoy.strftime('%d/%m/%Y')}). Han sido excluidos de la matriz operativa. "
-                    "Revisá en Google Sheets si son entregas programadas o errores de tipeo en el año."
+                    f"posterior a hoy ({hoy.strftime('%d/%m/%Y')}). Han sido excluidos de la matriz operativa."
                 )
                 df_entregados_real = df_entregados_real[df_entregados_real[col_entrega_ho] <= hoy].copy()
-            # --------------------------------------------
             
             anios_ent = df_entregados_real[col_entrega_ho].dt.year.dropna().unique()
             anios_validos_sem = sorted([int(a) for a in anios_ent if 2020 <= a <= 2030], reverse=True)
@@ -511,6 +509,13 @@ try:
             
             df_tabla = df_anim[cols_con_marca].copy()
             
+            # --- LIMPIEZA DE COLUMNAS NUMÉRICAS/NOTAS (Para eliminar ceros como 10.000000) ---
+            cols_notas = ["Encuesta Temprana", "EI - Reco"]
+            for col_n in cols_notas:
+                if col_n in df_tabla.columns:
+                    s_num = pd.to_numeric(df_tabla[col_n], errors='coerce')
+                    df_tabla[col_n] = s_num.apply(lambda x: f"{int(round(x))}" if pd.notna(x) else "-")
+
             columnas_fecha = [
                 "Fecha de invitación Inicial",
                 "Primera fecha de recordatorio",
@@ -519,7 +524,7 @@ try:
             ]
             
             for col in df_tabla.columns:
-                if col not in columnas_fecha:
+                if col not in columnas_fecha and col not in cols_notas:
                     df_tabla[col] = df_tabla[col].fillna("-")
             
             def resaltar_canal(row):
@@ -545,6 +550,8 @@ try:
                         help="Hacé clic para enviar un WhatsApp automático al vendedor",
                         display_text="Avisar a Vendedor"
                     ),
+                    "Encuesta Temprana": st.column_config.TextColumn("Encuesta Temprana", width="small"),
+                    "EI - Reco": st.column_config.TextColumn("EI - Reco", width="small"),
                     "Comentario Enc. Temp.": st.column_config.TextColumn("Comentario Enc. Temp.", width="medium"),
                     "Comentario de la Encuesta interna": st.column_config.TextColumn("Comentario Encuesta Interna", width="large"),
                     "Fecha de invitación Inicial": st.column_config.DateColumn("Invitación Inicial", format="DD/MM/YYYY"),
@@ -622,11 +629,9 @@ try:
         if not df_t.empty:
             df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha de Facturacion"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
             
-            # --- CÁLCULOS COMPLETADOS ---
             if "Fecha de Pedido de Preparacion" in df_t.columns and "Fecha de confirmacion de entrega" in df_t.columns:
                 df_t["Prep a Entrega"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha de Pedido de Preparacion"), r.get("Fecha de confirmacion de entrega")), axis=1)
             
-            # Mostrar Tarjetas (Metrics) de Promedios
             st.write("### 📈 Promedios de Demora (Días Hábiles)")
             c1, c2, c3 = st.columns(3)
             
@@ -639,7 +644,6 @@ try:
             
             st.write("### 📋 Detalle de Tiempos por Operación")
             
-            # Limpiamos las columnas para mostrar algo ordenado
             cols_mostrar = [c for c in ["Cliente", "Marca", "Fecha de Facturacion", "Fecha que el Gestor Retira Doc", "Facturación a Gestor", "Fecha de Pedido de Preparacion", "Fecha de confirmacion de entrega", "Prep a Entrega"] if c in df_t.columns]
             st.dataframe(df_t[cols_mostrar], use_container_width=True, hide_index=True)
         else:
