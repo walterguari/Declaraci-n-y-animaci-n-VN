@@ -55,14 +55,8 @@ try:
     df_base.columns = [str(c).replace('\n', ' ').replace('\r', ' ').strip() for c in df_base.columns]
     df_base.columns = [" ".join(c.split()) for c in df_base.columns]
 
-    # --- SIDEBAR: FILTROS GLOBALES ---
-    st.sidebar.header("Filtros Globales")
-    
-    marcas = sorted(df_base["Marca"].dropna().unique()) if "Marca" in df_base.columns else []
-    filtro_marca = st.sidebar.multiselect("Seleccionar Marca", options=marcas)
-
-    canales = sorted(df_base["Canal de Venta"].dropna().unique()) if "Canal de Venta" in df_base.columns else []
-    filtro_canal = st.sidebar.multiselect("Canal de Venta", options=canales)
+    # --- APLICACIÓN DE DATOS ---
+    df = df_base.copy()
 
     # --- APLICACIÓN DEL FILTRO GLOBAL ---
     df = df_base.copy()
@@ -109,11 +103,10 @@ try:
             df[col_ei] = "SIN ESTADO"
 
     # --- CREACIÓN DE PESTAÑAS ---
-    tab_ho, tab_animacion, tab_tiempos, tab_graficos = st.tabs([
+    tab_ho, tab_animacion, tab_tiempos = st.tabs([
         "🛡️ Gestión de Hand Over y Garantías", 
         "📣 Animación de Encuestas", 
-        "⏱️ Análisis de Tiempos", 
-        "📈 Análisis Visual"
+        "⏱️ Análisis de Tiempos"
     ])
     
     # ---------------------------------------------------------
@@ -684,21 +677,6 @@ try:
         else:
             st.info("No hay datos disponibles para el periodo seleccionado.")
 
-    # ---------------------------------------------------------
-    # PESTAÑA 4: ANÁLISIS VISUAL
-    # ---------------------------------------------------------
-    with tab_graficos:
-        st.header("Análisis Visual de Gestión")
-        if not df.empty:
-            g1, g2 = st.columns(2)
-            with g1:
-                st.write("### Unidades por Marca")
-                if "Marca" in df.columns:
-                    st.plotly_chart(px.bar(df["Marca"].value_counts().reset_index(), x="Marca", y="count", color="Marca", template="plotly_white"), use_container_width=True, key="g_marca")
-            with g2:
-                st.write("### Estado Interno de los Pendientes")
-                if col_ei in df.columns:
-                    st.plotly_chart(px.pie(df[df['TIENE_HO']==False], names=col_ei, hole=0.4), use_container_width=True, key="g_ei")
-
+    
 except Exception as e:
     st.error(f"Error al cargar el portal: {e}")
