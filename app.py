@@ -308,6 +308,20 @@ try:
             )
             df_entregados_real = df_entregados_real[df_entregados_real[col_entrega_ho].notna()].copy()
             
+            # --- CONTROL Y FILTRADO DE FECHAS FUTURAS ---
+            hoy = pd.Timestamp.now()
+            fechas_futuras = df_entregados_real[df_entregados_real[col_entrega_ho] > hoy]
+            
+            if not fechas_futuras.empty:
+                st.warning(
+                    f"⚠️ **Atención:** Se detectaron **{len(fechas_futuras)} registros** con 'Fecha de confirmacion de entrega' "
+                    f"posterior a hoy ({hoy.strftime('%d/%m/%Y')}). Han sido excluidos de la matriz operativa. "
+                    "Revisá en Google Sheets si son entregas programadas o errores de tipeo en el año."
+                )
+                # Conservamos únicamente los registros con fecha hasta el día de hoy
+                df_entregados_real = df_entregados_real[df_entregados_real[col_entrega_ho] <= hoy].copy()
+            # --------------------------------------------
+            
             anios_ent = df_entregados_real[col_entrega_ho].dt.year.dropna().unique()
             anios_validos_sem = sorted([int(a) for a in anios_ent if 2020 <= a <= 2030], reverse=True)
         else:
