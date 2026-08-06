@@ -29,7 +29,7 @@ COLUMNAS_HO = [
     "Estado", "Fecha de confirmacion de entrega", "ESTADO INTERNO", "Fecha de Hand over"
 ]
 
-# Columnas exactas solicitadas para la Tabla de Animación (Actualizado con fechas)
+# Columnas exactas solicitadas para la Tabla de Animación
 COLUMNAS_ANIMACION = [
     "Canal de Venta", 
     "Vendedor", 
@@ -55,17 +55,10 @@ try:
     df_base.columns = [str(c).replace('\n', ' ').replace('\r', ' ').strip() for c in df_base.columns]
     df_base.columns = [" ".join(c.split()) for c in df_base.columns]
 
-    # --- APLICACIÓN DE DATOS ---
+    # --- APLICACIÓN DE DATOS (Sin filtros globales) ---
     df = df_base.copy()
 
-    # --- APLICACIÓN DEL FILTRO GLOBAL ---
-    df = df_base.copy()
-    if filtro_marca:
-        df = df[df["Marca"].isin(filtro_marca)]
-    if filtro_canal:
-        df = df[df["Canal de Venta"].isin(filtro_canal)]
-
-    # --- PROCESAMIENTO GLOBAL DE FECHAS (BLINDADO PARA EVITAR NULOS EN FECHAS DE SHEETS) ---
+    # --- PROCESAMIENTO GLOBAL DE FECHAS ---
     cols_a_fecha = [
         "Fecha de Patentamiento", "Fecha de Hand over", "Fecha de Facturacion",
         "Fecha que el Gestor Retira Doc", "Fecha Disponibilidad Papeles",
@@ -77,7 +70,7 @@ try:
         if c in df.columns:
             df[c] = pd.to_datetime(df[c].astype(str).str.strip(), dayfirst=True, format="mixed", errors='coerce')
 
-    # --- Auxiliares globales (Blindados) ---
+    # --- Auxiliares globales ---
     if "Fecha de Hand over" in df.columns:
         df['TIENE_HO'] = df["Fecha de Hand over"].notna()
     else:
@@ -102,7 +95,7 @@ try:
             st.error(f"❌ No se detecta la columna ESTADO INTERNO. Columnas disponibles: {list(df.columns)}")
             df[col_ei] = "SIN ESTADO"
 
-    # --- CREACIÓN DE PESTAÑAS ---
+    # --- CREACIÓN DE PESTAÑAS (Solo 3) ---
     tab_ho, tab_animacion, tab_tiempos = st.tabs([
         "🛡️ Gestión de Hand Over y Garantías", 
         "📣 Animación de Encuestas", 
@@ -311,7 +304,6 @@ try:
                     f"posterior a hoy ({hoy.strftime('%d/%m/%Y')}). Han sido excluidos de la matriz operativa. "
                     "Revisá en Google Sheets si son entregas programadas o errores de tipeo en el año."
                 )
-                # Conservamos únicamente los registros con fecha hasta el día de hoy
                 df_entregados_real = df_entregados_real[df_entregados_real[col_entrega_ho] <= hoy].copy()
             # --------------------------------------------
             
@@ -388,7 +380,7 @@ try:
         st.divider()
 
         # =========================================================
-        # 4. TABLA DETALLADA (INTERACTIVA SOLAMENTE CON EL GRÁFICO SUPERIOR)
+        # 4. TABLA DETALLADA
         # =========================================================
         st.write("### 📋 Detalle y Gestión de Unidades")
         
@@ -403,7 +395,6 @@ try:
             
         busq_ex = c_busq.text_input("🔍 Búsqueda rápida:", key="ex_busq", placeholder="Cliente, chasis, patente...")
         
-        # Sincronizamos exactamente con la base de la matriz y aplicamos el filtro si hiciste clic en una barra
         df_mostrar_ex = df_criticos.copy()
         
         if estado_clickeado:
@@ -417,7 +408,7 @@ try:
         st.dataframe(df_mostrar_ex[cols_ok_ex], use_container_width=True, hide_index=True, height=450)        
 
     # ---------------------------------------------------------
-    # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS (CON FECHAS NUEVAS Y CORRECCIÓN DE NULOS)
+    # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS
     # ---------------------------------------------------------
     with tab_animacion:
         st.header("📣 Animación de Encuesta de la Marca")
@@ -518,7 +509,6 @@ try:
             cols_anim_ok = [c for c in COLUMNAS_ANIMACION if c in df_anim.columns]
             cols_con_marca = ["Marca", "📲 WhatsApp"] + [c for c in cols_anim_ok if c != "Marca"]
             
-            # --- ESTA ES LA PARTE CORREGIDA ---
             df_tabla = df_anim[cols_con_marca].copy()
             
             columnas_fecha = [
@@ -528,11 +518,9 @@ try:
                 "Fecha de Vencimento Del Trabajo de Campo"
             ]
             
-            # Rellenamos con "-" solo las columnas que no son fechas
             for col in df_tabla.columns:
                 if col not in columnas_fecha:
                     df_tabla[col] = df_tabla[col].fillna("-")
-            # ----------------------------------
             
             def resaltar_canal(row):
                 estilos = [''] * len(row)
@@ -633,46 +621,29 @@ try:
 
         if not df_t.empty:
             df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha de Facturacion"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
-            df_t["Prep a Retiro"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha de Pedido de Preparacion"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
-            df_t["Gestoría"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha Disponibilidad Papeles")), axis=1)
-            df_t["Papeles a Entrega"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha Disponibilidad Papeles"), r.get("Fecha de confirmacion de entrega")), axis=1)
-            df_t["Demora Total"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha de Facturacion"), r.get("Fecha de confirmacion de entrega")), axis=1)
-
-            st.divider()
-            st.subheader(f"⏳ Promedios Días Hábiles - {mes_click if mes_click else 'Anual'}")
             
-            mt1, mt_prep, mt2, mt3, mt4 = st.columns(5)
+            # --- CÁLCULOS COMPLETADOS ---
+            if "Fecha de Pedido de Preparacion" in df_t.columns and "Fecha de confirmacion de entrega" in df_t.columns:
+                df_t["Prep a Entrega"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha de Pedido de Preparacion"), r.get("Fecha de confirmacion de entrega")), axis=1)
             
-            OBJ1, OBJ_PREP, OBJ2, OBJ3 = 2, 1, 3, 3 
-            p1, p_prep, p2, p3, p4 = df_t["Facturación a Gestor"].mean(), df_t["Prep a Retiro"].mean(), df_t["Gestoría"].mean(), df_t["Papeles a Entrega"].mean(), df_t["Demora Total"].mean()
-
-            mt1.metric("Fact. a Gestor", f"{p1:.1f} d" if pd.notna(p1) else "0.0 d", delta=f"{p1-OBJ1:.1f} vs Obj" if pd.notna(p1) else None, delta_color="inverse")
-            mt_prep.metric("Prep. a Retiro", f"{p_prep:.1f} d" if pd.notna(p_prep) else "0.0 d", delta=f"{p_prep-OBJ_PREP:.1f} vs Obj" if pd.notna(p_prep) else None, delta_color="inverse")
-            mt2.metric("Gestión Gestor", f"{p2:.1f} d" if pd.notna(p2) else "0.0 d", delta=f"{p2-OBJ2:.1f} vs Obj" if pd.notna(p2) else None, delta_color="inverse")
-            mt3.metric("Papeles a Entrega", f"{p3:.1f} d" if pd.notna(p3) else "0.0 d", delta=f"{p3-OBJ3:.1f} vs Obj" if pd.notna(p3) else None, delta_color="inverse")
-            mt4.metric("Ciclo Total", f"{p4:.1f} d" if pd.notna(p4) else "0.0 d")
-
-            st.subheader(f"📋 Detalle de Unidades ({tipo_g} en el periodo)")
+            # Mostrar Tarjetas (Metrics) de Promedios
+            st.write("### 📈 Promedios de Demora (Días Hábiles)")
+            c1, c2, c3 = st.columns(3)
             
-            columnas_detalle = [
-                "Marca", "Vendedor", "Cliente", "Chasis", 
-                "Facturación a Gestor", "Prep a Retiro", "Gestoría", "Papeles a Entrega", 
-                "Demora Total", "Fecha de confirmacion de entrega", "Estado"
-            ]
+            mean_fact_gestor = df_t['Facturación a Gestor'].mean() if not df_t['Facturación a Gestor'].dropna().empty else 0
+            c1.metric("Facturación ➔ Gestor", f"{mean_fact_gestor:.1f} días" if mean_fact_gestor else "-")
             
-            cols_det_ok = [c for c in columnas_detalle if c in df_t.columns]
-            st.dataframe(
-                df_t[cols_det_ok], 
-                use_container_width=True, 
-                hide_index=True,
-                column_config={
-                    "Facturación a Gestor": st.column_config.NumberColumn(help="Cálculo: [Fecha que el Gestor Retira Doc] - [Fecha de Facturación]"),
-                    "Prep a Retiro": st.column_config.NumberColumn(help="Cálculo: [Fecha que el Gestor Retira Doc] - [Fecha de Pedido de Preparacion]"),
-                    "Gestoría": st.column_config.NumberColumn(help="Cálculo: [Fecha Disponibilidad Papeles] - [Fecha que el Gestor Retira Doc]"),
-                    "Papeles a Entrega": st.column_config.NumberColumn(help="Cálculo: [Fecha de confirmacion de entrega] - [Fecha Disponibilidad Papeles]"),
-                    "Demora Total": st.column_config.NumberColumn(help="Cálculo: [Fecha de confirmacion de entrega] - [Fecha de Facturación]"),
-                    "Fecha de confirmacion de entrega": st.column_config.DateColumn("Fecha Entrega")
-                }
-            )
+            if "Prep a Entrega" in df_t.columns:
+                mean_prep_ent = df_t['Prep a Entrega'].mean() if not df_t['Prep a Entrega'].dropna().empty else 0
+                c2.metric("Prep ➔ Entrega", f"{mean_prep_ent:.1f} días" if mean_prep_ent else "-")
+            
+            st.write("### 📋 Detalle de Tiempos por Operación")
+            
+            # Limpiamos las columnas para mostrar algo ordenado
+            cols_mostrar = [c for c in ["Cliente", "Marca", "Fecha de Facturacion", "Fecha que el Gestor Retira Doc", "Facturación a Gestor", "Fecha de Pedido de Preparacion", "Fecha de confirmacion de entrega", "Prep a Entrega"] if c in df_t.columns]
+            st.dataframe(df_t[cols_mostrar], use_container_width=True, hide_index=True)
         else:
-            st.info("No hay datos disponibles para el periodo seleccionado.")
+            st.info("No hay datos para calcular tiempos operativos en el período seleccionado.")
+
+except Exception as e:
+    st.error(f"❌ Ocurrió un error al cargar o procesar los datos: {e}")
