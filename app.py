@@ -676,7 +676,3 @@ try:
             )
         else:
             st.info("No hay datos disponibles para el periodo seleccionado.")
-
-    
-except Exception as e:
-    st.error(f"Error al cargar el portal: {e}")
