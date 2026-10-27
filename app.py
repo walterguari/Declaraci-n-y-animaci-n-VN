@@ -103,7 +103,7 @@ try:
     # =========================================================
     # CARGA DE DATOS: POST VENTA (NUEVO)
     # =========================================================
-    df_raw_pv = conn.read(spreadsheet=url_posventa, worksheet="PVT ROAR")
+    df_raw_pv = conn.read(spreadsheet=url_posventa)
     df_pv = df_raw_pv.dropna(how='all').copy()
     
     # Normalización rápida de columnas para Post Venta
