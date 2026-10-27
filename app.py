@@ -572,35 +572,32 @@ try:
             cols_faltantes = set(COLUMNAS_ANIMACION) - set(cols_anim_ok)
             if cols_faltantes:
                 st.caption(f"⚠️ Nota: Las siguientes columnas solicitadas no fueron encontradas con ese nombre exacto en el archivo original: {', '.join(cols_faltantes)}")
-
     # ---------------------------------------------------------
-    # PESTAÑA 3: ANIMACIÓN DE CLIENTES DE POST VENTA (CORREGIDA)
+    # PESTAÑA 3: ANIMACIÓN DE CLIENTES DE POST VENTA (SÚPER BLINDADA)
     # ---------------------------------------------------------
     with tab_animacion_pv:
         st.header("🔧 Animación de clientes de post venta")
         st.write("Seguimiento y métricas de encuestas de clientes en la base PVT ROAR.")
         
-        # --- BÚSQUEDA INTELIGENTE DE LA COLUMNA DE ESTADO ---
-        # Buscamos todas las columnas que contengan "ESTADO DE LA ENCUESTA"
-        cols_estado_posibles = [c for c in df_pv.columns if "Estado de la Encuesta" in c.upper()]
+        # --- BÚSQUEDA EXTREMA POR CONTENIDO (Ignoramos el nombre del encabezado) ---
         col_estado_real = None
-        
-        # Filtramos para quedarnos con la que realmente tiene los textos y no fechas
-        for c in cols_estado_posibles:
-            if df_pv[c].astype(str).str.contains('Caducada|Contestada|Descartado|En Espera', case=False, na=False).any():
-                col_estado_real = c
+        for col in df_pv.columns:
+            # Si la columna tiene alguna de estas palabras clave en sus celdas, ES LA INDICADA.
+            if df_pv[col].astype(str).str.contains('Caducada|Contestada|Descartado', case=False, na=False).any():
+                col_estado_real = col
                 break
-                
-        # Si no la encontró por el contenido, usamos la última que coincida por las dudas
-        if not col_estado_real and cols_estado_posibles:
-            col_estado_real = cols_estado_posibles[-1]
 
-        if not col_estado_real or "Marca" not in df_pv.columns:
-            st.error("❌ No se encontró la columna de Estado o Marca en la base de Post Venta. Revisá los nombres en Google Sheets.")
+        if not col_estado_real:
+            st.error("❌ No se detectó ninguna columna que contenga los estados 'Caducada', 'Contestada' o 'Descartado'.")
+        elif "Marca" not in df_pv.columns:
+            st.error("❌ No se encontró la columna 'Marca' en la base de Post Venta.")
         else:
             # 1. Filtro dinámico usando la columna correcta detectada
             estados_unicos = sorted(df_pv[col_estado_real].dropna().astype(str).unique())
-            estado_seleccionado = st.selectbox("📌 Filtrar por Estado de la Encuesta:", ["Todos"] + estados_unicos)
+            # Filtramos para que no muestre fechas o cosas raras en el selectbox por error
+            estados_limpios = [e for e in estados_unicos if e.strip() != "" and not any(char.isdigit() for char in str(e))]
+            
+            estado_seleccionado = st.selectbox("📌 Filtrar por Estado de la Encuesta:", ["Todos"] + estados_limpios)
             
             # Aplicar filtro
             df_pv_filtrado = df_pv.copy()
