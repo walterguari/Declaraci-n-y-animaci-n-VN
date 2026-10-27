@@ -12,8 +12,11 @@ st.set_page_config(page_title="Portal de Gestión VN", layout="wide", page_icon=
 # 2. Conexión a Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# URL Limpia original
+# URL Limpia original (Ventas)
 url_base = "https://docs.google.com/spreadsheets/d/1-ziHRIEWQZUxFUBGqoweX6PvY6sDgoaXGcueSUd9370/edit#gid=1482583153"
+
+# NUEVA URL (Post Venta)
+url_posventa = "https://docs.google.com/spreadsheets/d/1kMzEHI4uuEWdIG7NfjgVkVVqOSw8ga9p_4-1i5ZN5wo/edit#gid=1727842086"
 
 # --- DICCIONARIO DE TELÉFONOS DE LOS ASESORES ---
 TELEFONOS_ASESORES = {
@@ -29,7 +32,7 @@ COLUMNAS_HO = [
     "Estado", "Fecha de confirmacion de entrega", "ESTADO INTERNO", "Fecha de Hand over"
 ]
 
-# Columnas exactas solicitadas para la Tabla de Animación
+# Columnas exactas solicitadas para la Tabla de Animación (Ventas)
 COLUMNAS_ANIMACION = [
     "Canal de Venta", 
     "Vendedor", 
@@ -47,7 +50,9 @@ COLUMNAS_ANIMACION = [
 ]
 
 try:
-    # --- CARGA DE DATOS ---
+    # =========================================================
+    # CARGA DE DATOS: VENTAS (Original)
+    # =========================================================
     df_raw = conn.read(spreadsheet=url_base)
     df_base = df_raw.dropna(how='all')
     
@@ -95,15 +100,27 @@ try:
             st.error(f"❌ No se detecta la columna ESTADO INTERNO. Columnas disponibles: {list(df.columns)}")
             df[col_ei] = "SIN ESTADO"
 
-    # --- CREACIÓN DE PESTAÑAS ---
-    tab_ho, tab_animacion, tab_tiempos = st.tabs([
+    # =========================================================
+    # CARGA DE DATOS: POST VENTA (NUEVO)
+    # =========================================================
+    df_raw_pv = conn.read(spreadsheet=url_posventa, worksheet="PVT ROAR")
+    df_pv = df_raw_pv.dropna(how='all').copy()
+    
+    # Normalización rápida de columnas para Post Venta
+    df_pv.columns = [str(c).replace('\n', ' ').replace('\r', ' ').strip() for c in df_pv.columns]
+    df_pv.columns = [" ".join(c.split()) for c in df_pv.columns]
+
+
+    # --- CREACIÓN DE PESTAÑAS (Ahora son 4) ---
+    tab_ho, tab_animacion_v, tab_animacion_pv, tab_tiempos = st.tabs([
         "🛡️ Gestión de Hand Over y Garantías", 
-        "📣 Animación de Encuestas", 
+        "📣 Animación de clientes de venta", 
+        "🔧 Animación de clientes de post venta",
         "⏱️ Análisis de Tiempos"
     ])
     
     # ---------------------------------------------------------
-    # PESTAÑA 1: GESTIÓN DE HAND OVER Y GARANTÍAS
+    # PESTAÑA 1: GESTIÓN DE HAND OVER Y GARANTÍAS (Intacta)
     # ---------------------------------------------------------
     with tab_ho:
         st.header("🛡️ Gestión de Hand Over y Garantías")
@@ -175,9 +192,7 @@ try:
                 res_df = res_df.sort_values("Mes_Num")
             return res_df
 
-        # =========================================================
         # 1. SECCIÓN DESPLEGABLE DE GRÁFICOS (EXPANDER)
-        # =========================================================
         with st.expander("📊 Evolución Mensual Operativa (Patentamientos y Entregas)", expanded=True):
             
             y_pat = pd.to_datetime(df_base["Fecha de Patentamiento"].astype(str).str.strip(), dayfirst=True, format="mixed", errors='coerce').dt.year.dropna()
@@ -251,9 +266,7 @@ try:
                 else:
                     st.info(f"No hay entregas cargadas para el año {anio_sel_g}.")
 
-        # =========================================================
         # 2. MÉTRICAS CLAVE (KPIs)
-        # =========================================================
         st.divider()
         pat_v = df_ho[df_ho["Fecha de Patentamiento"].notna()]
         
@@ -273,9 +286,7 @@ try:
 
         st.divider()
 
-        # =========================================================
-        # 3. SEGUIMIENTO OPERATIVO (ENTREGADOS SIN HAND OVER BY ESTADO)
-        # =========================================================
+        # 3. SEGUIMIENTO OPERATIVO
         st.write("### 📌 Seguimiento Operativo: Pendientes de Hand Over")
         
         col_entrega_ho = "Fecha de confirmacion de entrega"
@@ -294,7 +305,6 @@ try:
             )
             df_entregados_real = df_entregados_real[df_entregados_real[col_entrega_ho].notna()].copy()
             
-            # --- CONTROL Y FILTRADO DE FECHAS FUTURAS ---
             hoy = pd.Timestamp.now()
             fechas_futuras = df_entregados_real[df_entregados_real[col_entrega_ho] > hoy]
             
@@ -377,9 +387,7 @@ try:
             
         st.divider()
 
-        # =========================================================
         # 4. TABLA DETALLADA
-        # =========================================================
         st.write("### 📋 Detalle y Gestión de Unidades")
         
         c_aviso, c_boton, c_busq = st.columns([3, 1, 2])
@@ -406,10 +414,10 @@ try:
         st.dataframe(df_mostrar_ex[cols_ok_ex], use_container_width=True, hide_index=True, height=450)        
 
     # ---------------------------------------------------------
-    # PESTAÑA 2: ANIMACIÓN DE ENCUESTAS
+    # PESTAÑA 2: ANIMACIÓN DE CLIENTES DE VENTA (Intacta con nuevo nombre)
     # ---------------------------------------------------------
-    with tab_animacion:
-        st.header("📣 Animación de Encuesta de la Marca")
+    with tab_animacion_v:
+        st.header("📣 Animación de clientes de venta")
         st.write("Listado de clientes con estado **En Espera** para seguimiento y animación de respuestas.")
         
         col_em = "Estado de la marca"
@@ -509,7 +517,7 @@ try:
             
             df_tabla = df_anim[cols_con_marca].copy()
             
-            # --- LIMPIEZA DE COLUMNAS NUMÉRICAS/NOTAS (Para eliminar ceros como 10.000000) ---
+            # --- LIMPIEZA DE COLUMNAS NUMÉRICAS/NOTAS ---
             cols_notas = ["Encuesta Temprana", "EI - Reco"]
             for col_n in cols_notas:
                 if col_n in df_tabla.columns:
@@ -566,7 +574,55 @@ try:
                 st.caption(f"⚠️ Nota: Las siguientes columnas solicitadas no fueron encontradas con ese nombre exacto en el archivo original: {', '.join(cols_faltantes)}")
 
     # ---------------------------------------------------------
-    # PESTAÑA 3: ANÁLISIS DE TIEMPOS
+    # PESTAÑA 3: ANIMACIÓN DE CLIENTES DE POST VENTA (LA NUEVA)
+    # ---------------------------------------------------------
+    with tab_animacion_pv:
+        st.header("🔧 Animación de clientes de post venta")
+        st.write("Seguimiento y métricas de encuestas de clientes en la base PVT ROAR.")
+        
+        if "Estado de la Encuesta" not in df_pv.columns or "Marca" not in df_pv.columns:
+            st.error("❌ No se encontraron las columnas 'Estado de la Encuesta' o 'Marca' en la base de Post Venta.")
+        else:
+            # 1. Filtro dinámico
+            estados_unicos = sorted(df_pv["Estado de la Encuesta"].dropna().astype(str).unique())
+            estado_seleccionado = st.selectbox("📌 Filtrar por Estado de la Encuesta:", ["Todos"] + estados_unicos)
+            
+            # Aplicar filtro
+            df_pv_filtrado = df_pv.copy()
+            if estado_seleccionado != "Todos":
+                df_pv_filtrado = df_pv_filtrado[df_pv_filtrado["Estado de la Encuesta"].astype(str) == estado_seleccionado]
+            
+            st.divider()
+            
+            # 2. Etiquetas/KPIs dinámicas por marca
+            df_pv_filtrado["Marca_Norm"] = df_pv_filtrado["Marca"].astype(str).str.upper()
+            
+            cant_peugeot = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("PEUGEOT", na=False)])
+            cant_citroen = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("CITRO", na=False)])
+            
+            kpi_p, kpi_c, kpi_t = st.columns(3)
+            kpi_p.metric("🦁 Peugeot", cant_peugeot)
+            kpi_c.metric("⚙️ Citroën", cant_citroen)
+            kpi_t.metric("📊 Total Filtrados", len(df_pv_filtrado))
+            
+            st.divider()
+            
+            # 3. Tabla de visualización
+            st.write("### 📋 Detalle de Clientes")
+            
+            busq_pv = st.text_input("🔍 Búsqueda rápida en Post Venta:", placeholder="Nombre, patente, teléfono...", key="busq_pv")
+            if busq_pv:
+                mask_pv = df_pv_filtrado.apply(lambda row: row.astype(str).str.contains(busq_pv, case=False).any(), axis=1)
+                df_pv_filtrado = df_pv_filtrado[mask_pv]
+            
+            # Ocultamos la columna temporal de normalización
+            if "Marca_Norm" in df_pv_filtrado.columns:
+                df_pv_filtrado = df_pv_filtrado.drop(columns=["Marca_Norm"])
+                
+            st.dataframe(df_pv_filtrado, use_container_width=True, hide_index=True, height=450)
+
+    # ---------------------------------------------------------
+    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (Intacta)
     # ---------------------------------------------------------
     with tab_tiempos:
         st.header("⏱️ Análisis de Tiempos Operativos (Días Hábiles)")
