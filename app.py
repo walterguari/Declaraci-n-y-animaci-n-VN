@@ -574,23 +574,38 @@ try:
                 st.caption(f"⚠️ Nota: Las siguientes columnas solicitadas no fueron encontradas con ese nombre exacto en el archivo original: {', '.join(cols_faltantes)}")
 
     # ---------------------------------------------------------
-    # PESTAÑA 3: ANIMACIÓN DE CLIENTES DE POST VENTA (LA NUEVA)
+    # PESTAÑA 3: ANIMACIÓN DE CLIENTES DE POST VENTA (CORREGIDA)
     # ---------------------------------------------------------
     with tab_animacion_pv:
         st.header("🔧 Animación de clientes de post venta")
         st.write("Seguimiento y métricas de encuestas de clientes en la base PVT ROAR.")
         
-        if "Estado de la Encuesta" not in df_pv.columns or "Marca" not in df_pv.columns:
-            st.error("❌ No se encontraron las columnas 'Estado de la Encuesta' o 'Marca' en la base de Post Venta.")
+        # --- BÚSQUEDA INTELIGENTE DE LA COLUMNA DE ESTADO ---
+        # Buscamos todas las columnas que contengan "ESTADO DE LA ENCUESTA"
+        cols_estado_posibles = [c for c in df_pv.columns if "ESTADO DE LA ENCUESTA" in c.upper()]
+        col_estado_real = None
+        
+        # Filtramos para quedarnos con la que realmente tiene los textos y no fechas
+        for c in cols_estado_posibles:
+            if df_pv[c].astype(str).str.contains('Caducada|Contestada|Descartado|En Espera', case=False, na=False).any():
+                col_estado_real = c
+                break
+                
+        # Si no la encontró por el contenido, usamos la última que coincida por las dudas
+        if not col_estado_real and cols_estado_posibles:
+            col_estado_real = cols_estado_posibles[-1]
+
+        if not col_estado_real or "Marca" not in df_pv.columns:
+            st.error("❌ No se encontró la columna de Estado o Marca en la base de Post Venta. Revisá los nombres en Google Sheets.")
         else:
-            # 1. Filtro dinámico
-            estados_unicos = sorted(df_pv["Estado de la Encuesta"].dropna().astype(str).unique())
+            # 1. Filtro dinámico usando la columna correcta detectada
+            estados_unicos = sorted(df_pv[col_estado_real].dropna().astype(str).unique())
             estado_seleccionado = st.selectbox("📌 Filtrar por Estado de la Encuesta:", ["Todos"] + estados_unicos)
             
             # Aplicar filtro
             df_pv_filtrado = df_pv.copy()
             if estado_seleccionado != "Todos":
-                df_pv_filtrado = df_pv_filtrado[df_pv_filtrado["Estado de la Encuesta"].astype(str) == estado_seleccionado]
+                df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_estado_real].astype(str) == estado_seleccionado]
             
             st.divider()
             
@@ -615,7 +630,7 @@ try:
                 mask_pv = df_pv_filtrado.apply(lambda row: row.astype(str).str.contains(busq_pv, case=False).any(), axis=1)
                 df_pv_filtrado = df_pv_filtrado[mask_pv]
             
-            # Ocultamos la columna temporal de normalización
+            # Ocultamos la columna temporal
             if "Marca_Norm" in df_pv_filtrado.columns:
                 df_pv_filtrado = df_pv_filtrado.drop(columns=["Marca_Norm"])
                 
