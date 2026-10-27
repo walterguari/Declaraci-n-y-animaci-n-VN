@@ -582,7 +582,7 @@ try:
         
         # --- BÚSQUEDA INTELIGENTE DE LA COLUMNA DE ESTADO ---
         # Buscamos todas las columnas que contengan "ESTADO DE LA ENCUESTA"
-        cols_estado_posibles = [c for c in df_pv.columns if "ESTADO DE LA ENCUESTA" in c.upper()]
+        cols_estado_posibles = [c for c in df_pv.columns if "Estado de la Encuesta" in c.upper()]
         col_estado_real = None
         
         # Filtramos para quedarnos con la que realmente tiene los textos y no fechas
