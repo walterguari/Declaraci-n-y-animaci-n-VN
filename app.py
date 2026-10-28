@@ -574,23 +574,40 @@ try:
                 st.caption(f"⚠️ Nota: Las siguientes columnas solicitadas no fueron encontradas con ese nombre exacto en el archivo original: {', '.join(cols_faltantes)}")
 
     # ---------------------------------------------------------
-    # PESTAÑA 3: ANIMACIÓN DE CLIENTES DE POST VENTA (LA NUEVA)
+    # PESTAÑA 3: ANIMACIÓN DE CLIENTES DE POST VENTA (CORREGIDA)
     # ---------------------------------------------------------
     with tab_animacion_pv:
         st.header("🔧 Animación de clientes de post venta")
         st.write("Seguimiento y métricas de encuestas de clientes en la base PVT ROAR.")
         
-        if "Estado de la Encuesta" not in df_pv.columns or "Marca" not in df_pv.columns:
-            st.error("❌ No se encontraron las columnas 'Estado de la Encuesta' o 'Marca' en la base de Post Venta.")
+        # --- BÚSQUEDA INTELIGENTE POR CONTENIDO ---
+        col_estado_real = None
+        
+        # Buscamos en todas las columnas cuál es la que realmente tiene los textos
+        for col in df_pv.columns:
+            # Revisamos si la columna tiene alguna de estas palabras clave
+            if df_pv[col].astype(str).str.contains('Caducada|Contestada|Descartado|En Espera', case=False, na=False).any():
+                col_estado_real = col
+                break
+
+        if not col_estado_real:
+            st.error("❌ No se detectó ninguna columna que contenga los estados reales (ej. 'Caducada', 'Contestada').")
+        elif "Marca" not in df_pv.columns:
+            st.error("❌ No se encontró la columna 'Marca' en la base de Post Venta.")
         else:
-            # 1. Filtro dinámico
-            estados_unicos = sorted(df_pv["Estado de la Encuesta"].dropna().astype(str).unique())
-            estado_seleccionado = st.selectbox("📌 Filtrar por Estado de la Encuesta:", ["Todos"] + estados_unicos)
+            # 1. Filtro dinámico usando la columna correcta detectada
+            estados_unicos = sorted(df_pv[col_estado_real].dropna().astype(str).unique())
+            
+            # --- LIMPIEZA EXTRA ---
+            # Filtramos para asegurarnos de que no se cuele ninguna fecha u otro número raro en el selector
+            estados_limpios = [e for e in estados_unicos if e.strip() != "" and not any(char.isdigit() for char in str(e))]
+            
+            estado_seleccionado = st.selectbox("📌 Filtrar por Estado de la Encuesta:", ["Todos"] + estados_limpios)
             
             # Aplicar filtro
             df_pv_filtrado = df_pv.copy()
             if estado_seleccionado != "Todos":
-                df_pv_filtrado = df_pv_filtrado[df_pv_filtrado["Estado de la Encuesta"].astype(str) == estado_seleccionado]
+                df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_estado_real].astype(str) == estado_seleccionado]
             
             st.divider()
             
