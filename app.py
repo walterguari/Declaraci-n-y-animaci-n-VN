@@ -585,85 +585,95 @@ try:
         col_estado_real = None
         
         for col in posibles_cols:
-            # Validamos que sea la columna que tiene los textos y no la de fechas
             if df_pv[col].astype(str).str.contains('Descartado|Caducada|Contestada', case=False, na=False).any():
                 col_estado_real = col
                 break
                 
-        # Si no la encuentra por texto, toma la última coincidencia
         if not col_estado_real and posibles_cols:
             col_estado_real = posibles_cols[-1]
 
         if not col_estado_real:
             st.error("❌ No se encontró la columna 'Estado de la Encuesta' con los datos correctos.")
         else:
-            # 1. Filtro dinámico Principal
             estados_unicos = sorted(df_pv[col_estado_real].dropna().astype(str).unique())
-            # Filtro extra para limpiar cualquier número o fecha colada
             estados_limpios = [e for e in estados_unicos if e.strip() != "" and not any(char.isdigit() for char in str(e))]
             
-            estado_seleccionado = st.selectbox("📌 Filtrar por Estado de la Encuesta:", ["Todos"] + estados_limpios)
+            st.divider()
             
-            # Aplicar filtro principal
+            # =========================================================
+            # ESTRUCTURA HORIZONTAL: COLUMNAS PARA ALINEAR TODO
+            # Proporciones: [Filtro, Peugeot, Citroën, Total, Asesores]
+            # =========================================================
+            c_filtro, c_p, c_c, c_t, c_asesores = st.columns([2, 1, 1, 1, 4])
+            
+            # 1. Columna del Filtro Principal
+            with c_filtro:
+                estado_seleccionado = st.selectbox("📌 Estado de la Encuesta:", ["Todos"] + estados_limpios)
+            
+            # (Aplicamos el filtro al DataFrame antes de calcular los KPIs)
             df_pv_filtrado = df_pv.copy()
             if estado_seleccionado != "Todos":
                 df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_estado_real].astype(str) == estado_seleccionado]
             
-            st.divider()
-            
-            # 2. Etiquetas/KPIs dinámicas por marca
+            # (Calculamos las cantidades para las tarjetas)
             if "Marca" in df_pv_filtrado.columns:
                 df_pv_filtrado["Marca_Norm"] = df_pv_filtrado["Marca"].astype(str).str.upper()
                 cant_peugeot = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("PEUGEOT", na=False)])
                 cant_citroen = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("CITRO", na=False)])
             else:
                 cant_peugeot = cant_citroen = 0
-                st.warning("⚠️ No se encontró la columna 'Marca'.")
             
-            kpi_p, kpi_c, kpi_t = st.columns(3)
-            kpi_p.metric("🦁 Peugeot", cant_peugeot)
-            kpi_c.metric("⚙️ Citroën", cant_citroen)
-            kpi_t.metric("📊 Total Filtrados", len(df_pv_filtrado))
-            
-            st.divider()
-
-            # =========================================================
-            # NUEVO: BOTONES INTERACTIVOS POR ASESOR
-            # =========================================================
-            col_asesor = "Nombre del asesor"
-            if col_asesor in df_pv_filtrado.columns:
-                st.write("### 👥 Filtro Rápido por Asesor")
+            # 2, 3 y 4. Columnas de las Tarjetas (KPIs)
+            with c_p:
+                st.metric("🦁 Peugeot", cant_peugeot)
+            with c_c:
+                st.metric("⚙️ Citroën", cant_citroen)
+            with c_t:
+                st.metric("📊 Total Filtrados", len(df_pv_filtrado))
                 
-                # Contamos cuántos clientes tiene cada asesor en el DataFrame ya filtrado
-                conteo_asesores = df_pv_filtrado[col_asesor].value_counts()
-                
-                opciones_pills = []
-                mapa_asesores = {} # Diccionario para saber qué nombre real corresponde a cada botón
-                
-                for asesor, cant in conteo_asesores.items():
-                    asesor_str = str(asesor).strip()
-                    # Filtramos los nulos o vacíos
-                    if asesor_str and asesor_str.lower() not in ['nan', 'none', '']:
-                        label_boton = f"{asesor_str} ({cant})"
-                        opciones_pills.append(label_boton)
-                        mapa_asesores[label_boton] = asesor_str
-                
-                # Si hay asesores, mostramos los botones
-                if opciones_pills:
-                    asesor_seleccionado_label = st.pills(
-                        "Hacé clic en un asesor para filtrar la tabla (clic de nuevo para desmarcar):", 
-                        options=opciones_pills, 
-                        key="pills_asesor_pv"
-                    )
+            # 5. Columna de los Botones (Pills) de Asesores
+            with c_asesores:
+                col_asesor = "Nombre del asesor"
+                if col_asesor in df_pv_filtrado.columns:
+                    conteo_asesores = df_pv_filtrado[col_asesor].value_counts()
+                    opciones_pills = []
+                    mapa_asesores = {}
                     
-                    # Si el usuario hizo clic en un botón, filtramos la tabla
-                    if asesor_seleccionado_label:
-                        asesor_real = mapa_asesores[asesor_seleccionado_label]
-                        df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_asesor].astype(str).str.strip() == asesor_real]
-            else:
-                st.warning(f"⚠️ No se encontró la columna '{col_asesor}' en la base de datos.")
-            
+                    for asesor, cant in conteo_asesores.items():
+                        asesor_str = str(asesor).strip()
+                        if asesor_str and asesor_str.lower() not in ['nan', 'none', '']:
+                            label_boton = f"{asesor_str} ({cant})"
+                            opciones_pills.append(label_boton)
+                            mapa_asesores[label_boton] = asesor_str
+                    
+                    if opciones_pills:
+                        asesor_seleccionado_label = st.pills(
+                            "👥 Filtro Rápido por Asesor:", 
+                            options=opciones_pills, 
+                            key="pills_asesor_pv"
+                        )
+                        # Si tocan un asesor, filtramos un poco más la tabla
+                        if asesor_seleccionado_label:
+                            asesor_real = mapa_asesores[asesor_seleccionado_label]
+                            df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_asesor].astype(str).str.strip() == asesor_real]
+
             st.divider()
+            
+            # =========================================================
+            # TABLA DE VISUALIZACIÓN
+            # =========================================================
+            c_tit_tabla, c_busq_tabla = st.columns([3, 1])
+            c_tit_tabla.write("### 📋 Detalle de Clientes")
+            busq_pv = c_busq_tabla.text_input("🔍 Búsqueda rápida:", placeholder="Nombre, patente...", key="busq_pv")
+            
+            if busq_pv:
+                mask_pv = df_pv_filtrado.apply(lambda row: row.astype(str).str.contains(busq_pv, case=False).any(), axis=1)
+                df_pv_filtrado = df_pv_filtrado[mask_pv]
+            
+            if "Marca_Norm" in df_pv_filtrado.columns:
+                df_pv_filtrado = df_pv_filtrado.drop(columns=["Marca_Norm"])
+                
+            st.dataframe(df_pv_filtrado, use_container_width=True, hide_index=True, height=450)
             
             # =========================================================
             # 3. TABLA DE VISUALIZACIÓN
