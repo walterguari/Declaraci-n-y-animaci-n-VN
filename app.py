@@ -602,111 +602,6 @@ try:
             
             # =========================================================
             # ESTRUCTURA HORIZONTAL: COLUMNAS PARA ALINEAR TODO
-            # Proporciones: [Filtro, Peugeot, Citroën, Total, Asesores]
-            # =========================================================
-            c_filtro, c_p, c_c, c_t, c_asesores = st.columns([2, 1, 1, 1, 4])
-            
-            # 1. Columna del Filtro Principal
-            with c_filtro:
-                estado_seleccionado = st.selectbox("📌 Estado de la Encuesta:", ["Todos"] + estados_limpios)
-            
-            # (Aplicamos el filtro al DataFrame antes de calcular los KPIs)
-            df_pv_filtrado = df_pv.copy()
-            if estado_seleccionado != "Todos":
-                df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_estado_real].astype(str) == estado_seleccionado]
-            
-            # (Calculamos las cantidades para las tarjetas)
-            if "Marca" in df_pv_filtrado.columns:
-                df_pv_filtrado["Marca_Norm"] = df_pv_filtrado["Marca"].astype(str).str.upper()
-                cant_peugeot = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("PEUGEOT", na=False)])
-                cant_citroen = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("CITRO", na=False)])
-            else:
-                cant_peugeot = cant_citroen = 0
-            
-            # 2, 3 y 4. Columnas de las Tarjetas (KPIs)
-            with c_p:
-                st.metric("🦁 Peugeot", cant_peugeot)
-            with c_c:
-                st.metric("⚙️ Citroën", cant_citroen)
-            with c_t:
-                st.metric("📊 Total Filtrados", len(df_pv_filtrado))
-                
-            # 5. Columna de los Botones (Pills) de Asesores
-            with c_asesores:
-                col_asesor = "Nombre del asesor"
-                if col_asesor in df_pv_filtrado.columns:
-                    conteo_asesores = df_pv_filtrado[col_asesor].value_counts()
-                    opciones_pills = []
-                    mapa_asesores = {}
-                    
-                    for asesor, cant in conteo_asesores.items():
-                        asesor_str = str(asesor).strip()
-                        if asesor_str and asesor_str.lower() not in ['nan', 'none', '']:
-                            label_boton = f"{asesor_str} ({cant})"
-                            opciones_pills.append(label_boton)
-                            mapa_asesores[label_boton] = asesor_str
-                    
-                    if opciones_pills:
-                        asesor_seleccionado_label = st.pills(
-                            "👥 Filtro Rápido por Asesor:", 
-                            options=opciones_pills, 
-                            key="pills_asesor_pv"
-                        )
-                        # Si tocan un asesor, filtramos un poco más la tabla
-                        if asesor_seleccionado_label:
-                            asesor_real = mapa_asesores[asesor_seleccionado_label]
-                            df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_asesor].astype(str).str.strip() == asesor_real]
-
-            st.divider()
-            
-            # =========================================================
-            # TABLA DE VISUALIZACIÓN
-            # =========================================================
-            c_tit_tabla, c_busq_tabla = st.columns([3, 1])
-            c_tit_tabla.write("### 📋 Detalle de Clientes")
-            busq_pv = c_busq_tabla.text_input("🔍 Búsqueda rápida:", placeholder="Nombre, patente...", key="busq_pv")
-            
-            if busq_pv:
-                mask_pv = df_pv_filtrado.apply(lambda row: row.astype(str).str.contains(busq_pv, case=False).any(), axis=1)
-                df_pv_filtrado = df_pv_filtrado[mask_pv]
-            
-            if "Marca_Norm" in df_pv_filtrado.columns:
-                df_pv_filtrado = df_pv_filtrado.drop(columns=["Marca_Norm"])
-                
-            st.dataframe(df_pv_filtrado, use_container_width=True, hide_index=True, height=450)
-            
-            # =========================================================
-            # TABLA DE VISUALIZACIÓN
-            # =========================================================
-            # ---------------------------------------------------------
-    # PESTAÑA 3: ANIMACIÓN DE CLIENTES DE POST VENTA
-    # ---------------------------------------------------------
-    with tab_animacion_pv:
-        st.header("🔧 Animación de clientes de post venta")
-        st.write("Seguimiento y métricas de encuestas de clientes en la base PVT ROAR.")
-        
-        # --- BUSCAMOS LA COLUMNA EXACTA "ESTADO DE LA ENCUESTA" QUE TENGA TEXTO ---
-        posibles_cols = [c for c in df_pv.columns if "ESTADO DE LA ENCUESTA" in str(c).upper()]
-        col_estado_real = None
-        
-        for col in posibles_cols:
-            if df_pv[col].astype(str).str.contains('Descartado|Caducada|Contestada', case=False, na=False).any():
-                col_estado_real = col
-                break
-                
-        if not col_estado_real and posibles_cols:
-            col_estado_real = posibles_cols[-1]
-
-        if not col_estado_real:
-            st.error("❌ No se encontró la columna 'Estado de la Encuesta' con los datos correctos.")
-        else:
-            estados_unicos = sorted(df_pv[col_estado_real].dropna().astype(str).unique())
-            estados_limpios = [e for e in estados_unicos if e.strip() != "" and not any(char.isdigit() for char in str(e))]
-            
-            st.divider()
-            
-            # =========================================================
-            # ESTRUCTURA HORIZONTAL: COLUMNAS PARA ALINEAR TODO
             # =========================================================
             c_filtro, c_p, c_c, c_t, c_asesores = st.columns([2, 1, 1, 1, 4])
             
@@ -758,7 +653,7 @@ try:
             st.divider()
             
             # =========================================================
-            # TABLA DE VISUALIZACIÓN (Limpia y sin duplicados)
+            # TABLA DE VISUALIZACIÓN (Limpia, filtrada y sin duplicados)
             # =========================================================
             c_tit_tabla, c_busq_tabla = st.columns([3, 1])
             c_tit_tabla.write("### 📋 Detalle de Clientes")
