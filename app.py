@@ -103,7 +103,7 @@ try:
     # =========================================================
     # CARGA DE DATOS: POST VENTA (NUEVO)
     # =========================================================
-    df_raw_pv = conn.read(spreadsheet=url_posventa)
+    df_raw_pv = conn.read(spreadsheet=url_posventa, worksheet="1727842086", ttl=0)
     df_pv = df_raw_pv.dropna(how='all').copy()
     
     # Normalización rápida de columnas para Post Venta
