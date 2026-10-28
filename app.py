@@ -678,15 +678,97 @@ try:
             # =========================================================
             # TABLA DE VISUALIZACIÓN
             # =========================================================
+            # ---------------------------------------------------------
+    # PESTAÑA 3: ANIMACIÓN DE CLIENTES DE POST VENTA
+    # ---------------------------------------------------------
+    with tab_animacion_pv:
+        st.header("🔧 Animación de clientes de post venta")
+        st.write("Seguimiento y métricas de encuestas de clientes en la base PVT ROAR.")
+        
+        # --- BUSCAMOS LA COLUMNA EXACTA "ESTADO DE LA ENCUESTA" QUE TENGA TEXTO ---
+        posibles_cols = [c for c in df_pv.columns if "ESTADO DE LA ENCUESTA" in str(c).upper()]
+        col_estado_real = None
+        
+        for col in posibles_cols:
+            if df_pv[col].astype(str).str.contains('Descartado|Caducada|Contestada', case=False, na=False).any():
+                col_estado_real = col
+                break
+                
+        if not col_estado_real and posibles_cols:
+            col_estado_real = posibles_cols[-1]
+
+        if not col_estado_real:
+            st.error("❌ No se encontró la columna 'Estado de la Encuesta' con los datos correctos.")
+        else:
+            estados_unicos = sorted(df_pv[col_estado_real].dropna().astype(str).unique())
+            estados_limpios = [e for e in estados_unicos if e.strip() != "" and not any(char.isdigit() for char in str(e))]
+            
+            st.divider()
+            
+            # =========================================================
+            # ESTRUCTURA HORIZONTAL: COLUMNAS PARA ALINEAR TODO
+            # =========================================================
+            c_filtro, c_p, c_c, c_t, c_asesores = st.columns([2, 1, 1, 1, 4])
+            
+            with c_filtro:
+                estado_seleccionado = st.selectbox("📌 Estado de la Encuesta:", ["Todos"] + estados_limpios)
+            
+            df_pv_filtrado = df_pv.copy()
+            if estado_seleccionado != "Todos":
+                df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_estado_real].astype(str) == estado_seleccionado]
+            
+            if "Marca" in df_pv_filtrado.columns:
+                df_pv_filtrado["Marca_Norm"] = df_pv_filtrado["Marca"].astype(str).str.upper()
+                cant_peugeot = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("PEUGEOT", na=False)])
+                cant_citroen = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("CITRO", na=False)])
+            else:
+                cant_peugeot = cant_citroen = 0
+            
+            with c_p:
+                st.metric("🦁 Peugeot", cant_peugeot)
+            with c_c:
+                st.metric("⚙️ Citroën", cant_citroen)
+            with c_t:
+                st.metric("📊 Total Filtrados", len(df_pv_filtrado))
+                
+            with c_asesores:
+                col_asesor = "Nombre del asesor"
+                if col_asesor in df_pv_filtrado.columns:
+                    conteo_asesores = df_pv_filtrado[col_asesor].value_counts()
+                    opciones_pills = []
+                    mapa_asesores = {}
+                    
+                    for asesor, cant in conteo_asesores.items():
+                        asesor_str = str(asesor).strip()
+                        if asesor_str and asesor_str.lower() not in ['nan', 'none', '']:
+                            label_boton = f"{asesor_str} ({cant})"
+                            opciones_pills.append(label_boton)
+                            mapa_asesores[label_boton] = asesor_str
+                    
+                    if opciones_pills:
+                        asesor_seleccionado_label = st.pills(
+                            "👥 Filtro Rápido por Asesor:", 
+                            options=opciones_pills, 
+                            key="pills_asesor_pv"
+                        )
+                        if asesor_seleccionado_label:
+                            asesor_real = mapa_asesores[asesor_seleccionado_label]
+                            df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_asesor].astype(str).str.strip() == asesor_real]
+
+            st.divider()
+            
+            # =========================================================
+            # TABLA DE VISUALIZACIÓN (Limpia y sin duplicados)
+            # =========================================================
             c_tit_tabla, c_busq_tabla = st.columns([3, 1])
             c_tit_tabla.write("### 📋 Detalle de Clientes")
-            busq_pv = c_busq_tabla.text_input("🔍 Búsqueda rápida:", placeholder="Nombre, correo, etc...", key="busq_pv")
+            busq_pv = c_busq_tabla.text_input("🔍 Búsqueda rápida:", placeholder="Nombre, correo...", key="busq_pv_unica")
             
             if busq_pv:
                 mask_pv = df_pv_filtrado.apply(lambda row: row.astype(str).str.contains(busq_pv, case=False).any(), axis=1)
                 df_pv_filtrado = df_pv_filtrado[mask_pv]
             
-            # --- DEFINIMOS LAS COLUMNAS EXACTAS A MOSTRAR ---
+            # --- BÚSQUEDA INTELIGENTE DE COLUMNAS ---
             columnas_deseadas_pv = [
                 "Nombre del cliente", 
                 "Correo electrónico del cliente", 
@@ -699,15 +781,26 @@ try:
                 "Encuesta interna"
             ]
             
-            # Nos aseguramos de pedir solo las columnas que existan en la hoja para evitar errores
-            cols_mostrar_pv = [c for c in columnas_deseadas_pv if c in df_pv_filtrado.columns]
-                
-            st.dataframe(df_pv_filtrado[cols_mostrar_pv], use_container_width=True, hide_index=True, height=450)
+            cols_mostrar_pv = []
+            for col_deseada in columnas_deseadas_pv:
+                # Busca la columna ignorando si está en mayúscula o minúscula
+                match = next((c for c in df_pv_filtrado.columns if c.lower().strip() == col_deseada.lower().strip()), None)
+                if not match:
+                    # Si no la encuentra exacta, busca una que contenga esas palabras
+                    match = next((c for c in df_pv_filtrado.columns if col_deseada.lower().strip() in c.lower().strip()), None)
+                if match and match not in cols_mostrar_pv:
+                    cols_mostrar_pv.append(match)
             
-            # Si alguna columna de las que pediste no se encuentra, te avisa abajo en chiquito
-            cols_faltantes_pv = set(columnas_deseadas_pv) - set(cols_mostrar_pv)
-            if cols_faltantes_pv:
-                st.caption(f"⚠️ Nota: No se encontraron las siguientes columnas: {', '.join(cols_faltantes_pv)}")
+            # En caso de que se nos cuele "Estado de la Encuesta" pero no la original, usamos la detectada arriba
+            if col_estado_real and col_estado_real not in cols_mostrar_pv:
+                cols_mostrar_pv.insert(3, col_estado_real)
+
+            # Dibujamos la tabla finalmente con las columnas encontradas
+            if cols_mostrar_pv:
+                st.dataframe(df_pv_filtrado[cols_mostrar_pv], use_container_width=True, hide_index=True, height=450)
+            else:
+                st.warning("⚠️ No se detectó ninguna de las columnas solicitadas. Mostrando tabla completa por defecto:")
+                st.dataframe(df_pv_filtrado, use_container_width=True, hide_index=True, height=450)
     # ---------------------------------------------------------
     # PESTAÑA 4: ANÁLISIS DE TIEMPOS (Intacta)
     # ---------------------------------------------------------
