@@ -113,9 +113,9 @@ try:
 
     # --- CREACIÓN DE PESTAÑAS (Ahora son 4) ---
     tab_ho, tab_animacion_v, tab_animacion_pv, tab_tiempos = st.tabs([
-        "🛡️ Gestión de Hand Over y Garantías", 
-        "📣 Animación de clientes de venta", 
-        "🔧 Animación de clientes de post venta",
+        "🛡️ Gestión de Hand Over", 
+        "📣 Animación de clientes VN", 
+        "🔧 Animación de clientes PVT",
         "⏱️ Análisis de Tiempos"
     ])
     
@@ -123,7 +123,7 @@ try:
     # PESTAÑA 1: GESTIÓN DE HAND OVER Y GARANTÍAS (Intacta)
     # ---------------------------------------------------------
     with tab_ho:
-        st.header("🛡️ Gestión de Hand Over y Garantías")
+        st.header("🛡️ Gestión de Hand Over")
         
         df_ho = df.copy()
         if col_ei in df_ho.columns:
@@ -417,7 +417,7 @@ try:
     # PESTAÑA 2: ANIMACIÓN DE CLIENTES DE VENTA (Intacta con nuevo nombre)
     # ---------------------------------------------------------
     with tab_animacion_v:
-        st.header("📣 Animación de clientes de venta")
+        st.header("📣 Animación de clientes VN")
         st.write("Listado de clientes con estado **En Espera** para seguimiento y animación de respuestas.")
         
         col_em = "Estado de la marca"
@@ -574,10 +574,10 @@ try:
                 st.caption(f"⚠️ Nota: Las siguientes columnas solicitadas no fueron encontradas con ese nombre exacto en el archivo original: {', '.join(cols_faltantes)}")
 
     # ---------------------------------------------------------
-    # PESTAÑA 3: ANIMACIÓN DE CLIENTES DE POST VENTA
+    # PESTAÑA 3: ANIMACIÓN DE CLIENTES PVT
     # ---------------------------------------------------------
     with tab_animacion_pv:
-        st.header("🔧 Animación de clientes de post venta")
+        st.header("🔧 Animación de clientes PVT")
         st.write("Seguimiento y métricas de encuestas de clientes en la base PVT ROAR.")
         
         # --- BUSCAMOS LA COLUMNA EXACTA "ESTADO DE LA ENCUESTA" QUE TENGA TEXTO ---
@@ -585,7 +585,8 @@ try:
         col_estado_real = None
         
         for col in posibles_cols:
-            if df_pv[col].astype(str).str.contains('Descartado|Caducada|Contestada', case=False, na=False).any():
+            # Agregamos 'En espera' a las palabras de búsqueda para asegurarnos
+            if df_pv[col].astype(str).str.contains('Descartado|Caducada|Contestada|En espera', case=False, na=False).any():
                 col_estado_real = col
                 break
                 
@@ -601,12 +602,19 @@ try:
             st.divider()
             
             # =========================================================
-            # ESTRUCTURA HORIZONTAL: COLUMNAS PARA ALINEAR TODO
+            # ESTRUCTURA HORIZONTAL Y FILTROS
             # =========================================================
             c_filtro, c_p, c_c, c_t, c_asesores = st.columns([2, 1, 1, 1, 4])
             
             with c_filtro:
-                estado_seleccionado = st.selectbox("📌 Estado de la Encuesta:", ["Todos"] + estados_limpios)
+                opciones_filtro = ["Todos"] + estados_limpios
+                # --- SELECCIONAR "EN ESPERA" POR DEFECTO ---
+                idx_default = 0
+                for i, opc in enumerate(opciones_filtro):
+                    if opc.strip().lower() == "en espera":
+                        idx_default = i
+                        break
+                estado_seleccionado = st.selectbox("📌 Estado de la Encuesta:", opciones_filtro, index=idx_default)
             
             df_pv_filtrado = df_pv.copy()
             if estado_seleccionado != "Todos":
@@ -653,7 +661,7 @@ try:
             st.divider()
             
             # =========================================================
-            # TABLA DE VISUALIZACIÓN (Limpia, filtrada y sin duplicados)
+            # TABLA DE VISUALIZACIÓN (Con Marca y Títulos Cortos)
             # =========================================================
             c_tit_tabla, c_busq_tabla = st.columns([3, 1])
             c_tit_tabla.write("### 📋 Detalle de Clientes")
@@ -663,8 +671,9 @@ try:
                 mask_pv = df_pv_filtrado.apply(lambda row: row.astype(str).str.contains(busq_pv, case=False).any(), axis=1)
                 df_pv_filtrado = df_pv_filtrado[mask_pv]
             
-            # --- BÚSQUEDA INTELIGENTE DE COLUMNAS ---
+            # Agregamos "Marca" a las columnas solicitadas
             columnas_deseadas_pv = [
+                "Marca", 
                 "Nombre del cliente", 
                 "Correo electrónico del cliente", 
                 "Fecha del evento", 
@@ -678,29 +687,41 @@ try:
             
             cols_mostrar_pv = []
             for col_deseada in columnas_deseadas_pv:
-                # Busca la columna ignorando si está en mayúscula o minúscula
                 match = next((c for c in df_pv_filtrado.columns if c.lower().strip() == col_deseada.lower().strip()), None)
                 if not match:
-                    # Si no la encuentra exacta, busca una que contenga esas palabras
                     match = next((c for c in df_pv_filtrado.columns if col_deseada.lower().strip() in c.lower().strip()), None)
                 if match and match not in cols_mostrar_pv:
                     cols_mostrar_pv.append(match)
             
-            # En caso de que se nos cuele "Estado de la Encuesta" pero no la original, usamos la detectada arriba
             if col_estado_real and col_estado_real not in cols_mostrar_pv:
-                cols_mostrar_pv.insert(3, col_estado_real)
+                cols_mostrar_pv.insert(4, col_estado_real)
 
-            # Dibujamos la tabla finalmente con las columnas encontradas
             if cols_mostrar_pv:
-                st.dataframe(df_pv_filtrado[cols_mostrar_pv], use_container_width=True, hide_index=True, height=450)
+                df_final = df_pv_filtrado[cols_mostrar_pv].copy()
+                
+                # --- REDUCCIÓN DE NOMBRES DE COLUMNAS ---
+                # Detectamos dinámicamente las columnas largas y les ponemos un apodo corto
+                nombres_cortos = {
+                    col_estado_real: "Estado",
+                    next((c for c in cols_mostrar_pv if "invitación" in c.lower()), "N/A"): "Invitación",
+                    next((c for c in cols_mostrar_pv if "primera" in c.lower()), "N/A"): "1° Recordatorio",
+                    next((c for c in cols_mostrar_pv if "segunda" in c.lower()), "N/A"): "2° Recordatorio",
+                    next((c for c in cols_mostrar_pv if "vencimento" in c.lower() or "vencimiento" in c.lower()), "N/A"): "Vencimiento",
+                    next((c for c in cols_mostrar_pv if "correo" in c.lower()), "N/A"): "Correo"
+                }
+                
+                # Filtramos las que no apliquen para evitar errores y renombramos
+                nombres_cortos = {k: v for k, v in nombres_cortos.items() if k != "N/A" and k in df_final.columns}
+                df_final = df_final.rename(columns=nombres_cortos)
+                
+                st.dataframe(df_final, use_container_width=True, hide_index=True, height=450)
             else:
-                st.warning("⚠️ No se detectó ninguna de las columnas solicitadas. Mostrando tabla completa por defecto:")
-                st.dataframe(df_pv_filtrado, use_container_width=True, hide_index=True, height=450)
+                st.warning("⚠️ No se detectó ninguna de las columnas solicitadas.")
     # ---------------------------------------------------------
     # PESTAÑA 4: ANÁLISIS DE TIEMPOS (Intacta)
     # ---------------------------------------------------------
     with tab_tiempos:
-        st.header("⏱️ Análisis de Tiempos Operativos (Días Hábiles)")
+        st.header("⏱️ Análisis de Tiempos")
         
         v1, v2 = st.columns(2)
         v1.metric("Cantidad de Facturaciones", f"{df['Fecha de Facturacion'].notna().sum()} Unid." if 'Fecha de Facturacion' in df.columns else "0 Unid.")
