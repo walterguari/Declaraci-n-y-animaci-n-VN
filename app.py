@@ -103,7 +103,7 @@ try:
     # =========================================================
     # CARGA DE DATOS: POST VENTA (NUEVO)
     # =========================================================
-    df_raw_pv = conn.read(spreadsheet=url_posventa)
+    df_raw_pv = conn.read(spreadsheet=url_posventa, worksheet="PVT ROAR")
     df_pv = df_raw_pv.dropna(how='all').copy()
     
     # Normalización rápida de columnas para Post Venta
@@ -572,37 +572,25 @@ try:
             cols_faltantes = set(COLUMNAS_ANIMACION) - set(cols_anim_ok)
             if cols_faltantes:
                 st.caption(f"⚠️ Nota: Las siguientes columnas solicitadas no fueron encontradas con ese nombre exacto en el archivo original: {', '.join(cols_faltantes)}")
+
     # ---------------------------------------------------------
-    # PESTAÑA 3: ANIMACIÓN DE CLIENTES DE POST VENTA (SÚPER BLINDADA)
+    # PESTAÑA 3: ANIMACIÓN DE CLIENTES DE POST VENTA (LA NUEVA)
     # ---------------------------------------------------------
     with tab_animacion_pv:
         st.header("🔧 Animación de clientes de post venta")
         st.write("Seguimiento y métricas de encuestas de clientes en la base PVT ROAR.")
         
-        # --- BÚSQUEDA EXTREMA POR CONTENIDO (Ignoramos el nombre del encabezado) ---
-        col_estado_real = None
-        for col in df_pv.columns:
-            # Si la columna tiene alguna de estas palabras clave en sus celdas, ES LA INDICADA.
-            if df_pv[col].astype(str).str.contains('Caducada|Contestada|Descartado', case=False, na=False).any():
-                col_estado_real = col
-                break
-
-        if not col_estado_real:
-            st.error("❌ No se detectó ninguna columna que contenga los estados 'Caducada', 'Contestada' o 'Descartado'.")
-        elif "Marca" not in df_pv.columns:
-            st.error("❌ No se encontró la columna 'Marca' en la base de Post Venta.")
+        if "Estado de la Encuesta" not in df_pv.columns or "Marca" not in df_pv.columns:
+            st.error("❌ No se encontraron las columnas 'Estado de la Encuesta' o 'Marca' en la base de Post Venta.")
         else:
-            # 1. Filtro dinámico usando la columna correcta detectada
-            estados_unicos = sorted(df_pv[col_estado_real].dropna().astype(str).unique())
-            # Filtramos para que no muestre fechas o cosas raras en el selectbox por error
-            estados_limpios = [e for e in estados_unicos if e.strip() != "" and not any(char.isdigit() for char in str(e))]
-            
-            estado_seleccionado = st.selectbox("📌 Filtrar por Estado de la Encuesta:", ["Todos"] + estados_limpios)
+            # 1. Filtro dinámico
+            estados_unicos = sorted(df_pv["Estado de la Encuesta"].dropna().astype(str).unique())
+            estado_seleccionado = st.selectbox("📌 Filtrar por Estado de la Encuesta:", ["Todos"] + estados_unicos)
             
             # Aplicar filtro
             df_pv_filtrado = df_pv.copy()
             if estado_seleccionado != "Todos":
-                df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_estado_real].astype(str) == estado_seleccionado]
+                df_pv_filtrado = df_pv_filtrado[df_pv_filtrado["Estado de la Encuesta"].astype(str) == estado_seleccionado]
             
             st.divider()
             
@@ -627,7 +615,7 @@ try:
                 mask_pv = df_pv_filtrado.apply(lambda row: row.astype(str).str.contains(busq_pv, case=False).any(), axis=1)
                 df_pv_filtrado = df_pv_filtrado[mask_pv]
             
-            # Ocultamos la columna temporal
+            # Ocultamos la columna temporal de normalización
             if "Marca_Norm" in df_pv_filtrado.columns:
                 df_pv_filtrado = df_pv_filtrado.drop(columns=["Marca_Norm"])
                 
