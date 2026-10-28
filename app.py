@@ -580,18 +580,20 @@ try:
         st.header("🔧 Animación de clientes PVT")
         st.write("Seguimiento y métricas de encuestas de clientes en la base PVT ROAR.")
         
-        # --- BUSCAMOS LA COLUMNA EXACTA "ESTADO DE LA ENCUESTA" QUE TENGA TEXTO ---
+        # --- BÚSQUEDA DE COLUMNAS CLAVE ---
         posibles_cols = [c for c in df_pv.columns if "ESTADO DE LA ENCUESTA" in str(c).upper()]
         col_estado_real = None
-        
         for col in posibles_cols:
-            # Agregamos 'En espera' a las palabras de búsqueda para asegurarnos
             if df_pv[col].astype(str).str.contains('Descartado|Caducada|Contestada|En espera', case=False, na=False).any():
                 col_estado_real = col
                 break
-                
         if not col_estado_real and posibles_cols:
             col_estado_real = posibles_cols[-1]
+
+        # Buscar columna de Importación
+        col_importacion = next((c for c in df_pv.columns if "IMPORTACI" in str(c).upper() and "FECHA" in str(c).upper()), None)
+        if col_importacion:
+            df_pv[col_importacion] = pd.to_datetime(df_pv[col_importacion].astype(str).str.strip(), dayfirst=True, format="mixed", errors="coerce")
 
         if not col_estado_real:
             st.error("❌ No se encontró la columna 'Estado de la Encuesta' con los datos correctos.")
@@ -602,24 +604,53 @@ try:
             st.divider()
             
             # =========================================================
-            # ESTRUCTURA HORIZONTAL Y FILTROS
+            # ESTRUCTURA HORIZONTAL Y FILTROS (Año + Estado)
             # =========================================================
-            c_filtro, c_p, c_c, c_t, c_asesores = st.columns([2, 1, 1, 1, 4])
+            c_anio, c_filtro, c_p, c_c, c_t, c_asesores = st.columns([1, 1.5, 1, 1, 1, 4])
             
+            # 1. Filtro de Año
+            with c_anio:
+                if col_importacion:
+                    anios_disp = sorted(df_pv[col_importacion].dt.year.dropna().astype(int).unique(), reverse=True)
+                    anio_sel = st.selectbox("📅 Año:", ["Todos"] + anios_disp)
+                else:
+                    anio_sel = "Todos"
+                    st.selectbox("📅 Año:", ["Todos"], disabled=True)
+
+            # Aplicar Filtro de Año ANTES de calcular el TR
+            df_pv_anio = df_pv.copy()
+            if anio_sel != "Todos" and col_importacion:
+                df_pv_anio = df_pv_anio[df_pv_anio[col_importacion].dt.year == int(anio_sel)]
+
+            # 2. Filtro de Estado
             with c_filtro:
                 opciones_filtro = ["Todos"] + estados_limpios
-                # --- SELECCIONAR "EN ESPERA" POR DEFECTO ---
-                idx_default = 0
-                for i, opc in enumerate(opciones_filtro):
-                    if opc.strip().lower() == "en espera":
-                        idx_default = i
-                        break
-                estado_seleccionado = st.selectbox("📌 Estado de la Encuesta:", opciones_filtro, index=idx_default)
+                idx_default = next((i for i, opc in enumerate(opciones_filtro) if opc.strip().lower() == "en espera"), 0)
+                estado_seleccionado = st.selectbox("📌 Estado:", opciones_filtro, index=idx_default)
             
-            df_pv_filtrado = df_pv.copy()
+            # --- CÁLCULO DE TASA DE RESPUESTA (TR) GLOBAL POR ASESOR ---
+            col_asesor = "Nombre del asesor"
+            dict_tr_asesores = {}
+            
+            if col_asesor in df_pv_anio.columns:
+                for asesor, group in df_pv_anio.groupby(col_asesor):
+                    estados_asesor = group[col_estado_real].astype(str).str.strip().str.lower()
+                    
+                    contestada = (estados_asesor == "contestada").sum()
+                    caducada = (estados_asesor == "caducada").sum()
+                    en_espera = (estados_asesor == "en espera").sum()
+                    
+                    denominador = contestada + caducada + en_espera
+                    tr = (contestada / denominador * 100) if denominador > 0 else 0
+                    
+                    dict_tr_asesores[str(asesor).strip()] = f"{tr:.1f}%"
+
+            # Aplicar Filtro de Estado para la vista
+            df_pv_filtrado = df_pv_anio.copy()
             if estado_seleccionado != "Todos":
                 df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_estado_real].astype(str) == estado_seleccionado]
             
+            # --- KPIs DE MARCA ---
             if "Marca" in df_pv_filtrado.columns:
                 df_pv_filtrado["Marca_Norm"] = df_pv_filtrado["Marca"].astype(str).str.upper()
                 cant_peugeot = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("PEUGEOT", na=False)])
@@ -632,10 +663,10 @@ try:
             with c_c:
                 st.metric("⚙️ Citroën", cant_citroen)
             with c_t:
-                st.metric("📊 Total Filtrados", len(df_pv_filtrado))
+                st.metric("📊 Total", len(df_pv_filtrado))
                 
+            # 3. Botones (Pills) con Cantidad y TR
             with c_asesores:
-                col_asesor = "Nombre del asesor"
                 if col_asesor in df_pv_filtrado.columns:
                     conteo_asesores = df_pv_filtrado[col_asesor].value_counts()
                     opciones_pills = []
@@ -644,13 +675,15 @@ try:
                     for asesor, cant in conteo_asesores.items():
                         asesor_str = str(asesor).strip()
                         if asesor_str and asesor_str.lower() not in ['nan', 'none', '']:
-                            label_boton = f"{asesor_str} ({cant})"
+                            tr_actual = dict_tr_asesores.get(asesor_str, "0.0%")
+                            # Etiqueta visual: NOMBRE (Cantidad) - TR: %
+                            label_boton = f"{asesor_str} ({cant}) | TR: {tr_actual}"
                             opciones_pills.append(label_boton)
                             mapa_asesores[label_boton] = asesor_str
                     
                     if opciones_pills:
                         asesor_seleccionado_label = st.pills(
-                            "👥 Filtro Rápido por Asesor:", 
+                            "👥 Filtro Rápido por Asesor (TR = Tasa de Respuesta):", 
                             options=opciones_pills, 
                             key="pills_asesor_pv"
                         )
@@ -661,7 +694,7 @@ try:
             st.divider()
             
             # =========================================================
-            # TABLA DE VISUALIZACIÓN (Con Marca y Títulos Cortos)
+            # TABLA DE VISUALIZACIÓN
             # =========================================================
             c_tit_tabla, c_busq_tabla = st.columns([3, 1])
             c_tit_tabla.write("### 📋 Detalle de Clientes")
@@ -671,7 +704,6 @@ try:
                 mask_pv = df_pv_filtrado.apply(lambda row: row.astype(str).str.contains(busq_pv, case=False).any(), axis=1)
                 df_pv_filtrado = df_pv_filtrado[mask_pv]
             
-            # Agregamos "Marca" a las columnas solicitadas
             columnas_deseadas_pv = [
                 "Marca", 
                 "Nombre del cliente", 
@@ -699,8 +731,6 @@ try:
             if cols_mostrar_pv:
                 df_final = df_pv_filtrado[cols_mostrar_pv].copy()
                 
-                # --- REDUCCIÓN DE NOMBRES DE COLUMNAS ---
-                # Detectamos dinámicamente las columnas largas y les ponemos un apodo corto
                 nombres_cortos = {
                     col_estado_real: "Estado",
                     next((c for c in cols_mostrar_pv if "invitación" in c.lower()), "N/A"): "Invitación",
@@ -710,11 +740,26 @@ try:
                     next((c for c in cols_mostrar_pv if "correo" in c.lower()), "N/A"): "Correo"
                 }
                 
-                # Filtramos las que no apliquen para evitar errores y renombramos
                 nombres_cortos = {k: v for k, v in nombres_cortos.items() if k != "N/A" and k in df_final.columns}
                 df_final = df_final.rename(columns=nombres_cortos)
                 
-                st.dataframe(df_final, use_container_width=True, hide_index=True, height=450)
+                # --- APLICACIÓN DE COLORES A LA COLUMNA MARCA ---
+                def estilizar_marca(row):
+                    estilos = [''] * len(row)
+                    if "Marca" in row.index:
+                        idx_marca = row.index.get_loc("Marca")
+                        marca_val = str(row["Marca"]).upper()
+                        if "PEUGEOT" in marca_val:
+                            # Celeste Oscuro / Azul
+                            estilos[idx_marca] = 'background-color: #1e3d59; color: white; font-weight: bold;'
+                        elif "CITRO" in marca_val:
+                            # Naranja
+                            estilos[idx_marca] = 'background-color: #ff6e40; color: white; font-weight: bold;'
+                    return estilos
+
+                df_final_estilizado = df_final.style.apply(estilizar_marca, axis=1).hide(axis="index")
+                
+                st.dataframe(df_final_estilizado, use_container_width=True, height=450)
             else:
                 st.warning("⚠️ No se detectó ninguna de las columnas solicitadas.")
     # ---------------------------------------------------------
