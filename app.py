@@ -574,37 +574,37 @@ try:
                 st.caption(f"⚠️ Nota: Las siguientes columnas solicitadas no fueron encontradas con ese nombre exacto en el archivo original: {', '.join(cols_faltantes)}")
 
     # ---------------------------------------------------------
-    # PESTAÑA 3: ANIMACIÓN DE CLIENTES DE POST VENTA (CORREGIDA)
+    # PESTAÑA 3: ANIMACIÓN DE CLIENTES DE POST VENTA
     # ---------------------------------------------------------
     with tab_animacion_pv:
         st.header("🔧 Animación de clientes de post venta")
         st.write("Seguimiento y métricas de encuestas de clientes en la base PVT ROAR.")
         
-        # --- BÚSQUEDA INTELIGENTE POR CONTENIDO ---
+        # --- BUSCAMOS LA COLUMNA EXACTA "ESTADO DE LA ENCUESTA" QUE TENGA TEXTO ---
+        posibles_cols = [c for c in df_pv.columns if "ESTADO DE LA ENCUESTA" in str(c).upper()]
         col_estado_real = None
         
-        # Buscamos en todas las columnas cuál es la que realmente tiene los textos
-        for col in df_pv.columns:
-            # Revisamos si la columna tiene alguna de estas palabras clave
-            if df_pv[col].astype(str).str.contains('Caducada|Contestada|Descartado|En Espera', case=False, na=False).any():
+        for col in posibles_cols:
+            # Validamos que sea la columna que tiene los textos y no la de fechas
+            if df_pv[col].astype(str).str.contains('Descartado|Caducada|Contestada', case=False, na=False).any():
                 col_estado_real = col
                 break
+                
+        # Si no la encuentra por texto, toma la última coincidencia
+        if not col_estado_real and posibles_cols:
+            col_estado_real = posibles_cols[-1]
 
         if not col_estado_real:
-            st.error("❌ No se detectó ninguna columna que contenga los estados reales (ej. 'Caducada', 'Contestada').")
-        elif "Marca" not in df_pv.columns:
-            st.error("❌ No se encontró la columna 'Marca' en la base de Post Venta.")
+            st.error("❌ No se encontró la columna 'Estado de la Encuesta' con los datos correctos.")
         else:
-            # 1. Filtro dinámico usando la columna correcta detectada
+            # 1. Filtro dinámico Principal
             estados_unicos = sorted(df_pv[col_estado_real].dropna().astype(str).unique())
-            
-            # --- LIMPIEZA EXTRA ---
-            # Filtramos para asegurarnos de que no se cuele ninguna fecha u otro número raro en el selector
+            # Filtro extra para limpiar cualquier número o fecha colada
             estados_limpios = [e for e in estados_unicos if e.strip() != "" and not any(char.isdigit() for char in str(e))]
             
             estado_seleccionado = st.selectbox("📌 Filtrar por Estado de la Encuesta:", ["Todos"] + estados_limpios)
             
-            # Aplicar filtro
+            # Aplicar filtro principal
             df_pv_filtrado = df_pv.copy()
             if estado_seleccionado != "Todos":
                 df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_estado_real].astype(str) == estado_seleccionado]
@@ -612,10 +612,13 @@ try:
             st.divider()
             
             # 2. Etiquetas/KPIs dinámicas por marca
-            df_pv_filtrado["Marca_Norm"] = df_pv_filtrado["Marca"].astype(str).str.upper()
-            
-            cant_peugeot = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("PEUGEOT", na=False)])
-            cant_citroen = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("CITRO", na=False)])
+            if "Marca" in df_pv_filtrado.columns:
+                df_pv_filtrado["Marca_Norm"] = df_pv_filtrado["Marca"].astype(str).str.upper()
+                cant_peugeot = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("PEUGEOT", na=False)])
+                cant_citroen = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("CITRO", na=False)])
+            else:
+                cant_peugeot = cant_citroen = 0
+                st.warning("⚠️ No se encontró la columna 'Marca'.")
             
             kpi_p, kpi_c, kpi_t = st.columns(3)
             kpi_p.metric("🦁 Peugeot", cant_peugeot)
@@ -623,8 +626,48 @@ try:
             kpi_t.metric("📊 Total Filtrados", len(df_pv_filtrado))
             
             st.divider()
+
+            # =========================================================
+            # NUEVO: BOTONES INTERACTIVOS POR ASESOR
+            # =========================================================
+            col_asesor = "Nombre del asesor"
+            if col_asesor in df_pv_filtrado.columns:
+                st.write("### 👥 Filtro Rápido por Asesor")
+                
+                # Contamos cuántos clientes tiene cada asesor en el DataFrame ya filtrado
+                conteo_asesores = df_pv_filtrado[col_asesor].value_counts()
+                
+                opciones_pills = []
+                mapa_asesores = {} # Diccionario para saber qué nombre real corresponde a cada botón
+                
+                for asesor, cant in conteo_asesores.items():
+                    asesor_str = str(asesor).strip()
+                    # Filtramos los nulos o vacíos
+                    if asesor_str and asesor_str.lower() not in ['nan', 'none', '']:
+                        label_boton = f"{asesor_str} ({cant})"
+                        opciones_pills.append(label_boton)
+                        mapa_asesores[label_boton] = asesor_str
+                
+                # Si hay asesores, mostramos los botones
+                if opciones_pills:
+                    asesor_seleccionado_label = st.pills(
+                        "Hacé clic en un asesor para filtrar la tabla (clic de nuevo para desmarcar):", 
+                        options=opciones_pills, 
+                        key="pills_asesor_pv"
+                    )
+                    
+                    # Si el usuario hizo clic en un botón, filtramos la tabla
+                    if asesor_seleccionado_label:
+                        asesor_real = mapa_asesores[asesor_seleccionado_label]
+                        df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_asesor].astype(str).str.strip() == asesor_real]
+            else:
+                st.warning(f"⚠️ No se encontró la columna '{col_asesor}' en la base de datos.")
             
-            # 3. Tabla de visualización
+            st.divider()
+            
+            # =========================================================
+            # 3. TABLA DE VISUALIZACIÓN
+            # =========================================================
             st.write("### 📋 Detalle de Clientes")
             
             busq_pv = st.text_input("🔍 Búsqueda rápida en Post Venta:", placeholder="Nombre, patente, teléfono...", key="busq_pv")
@@ -632,12 +675,10 @@ try:
                 mask_pv = df_pv_filtrado.apply(lambda row: row.astype(str).str.contains(busq_pv, case=False).any(), axis=1)
                 df_pv_filtrado = df_pv_filtrado[mask_pv]
             
-            # Ocultamos la columna temporal de normalización
             if "Marca_Norm" in df_pv_filtrado.columns:
                 df_pv_filtrado = df_pv_filtrado.drop(columns=["Marca_Norm"])
                 
             st.dataframe(df_pv_filtrado, use_container_width=True, hide_index=True, height=450)
-
     # ---------------------------------------------------------
     # PESTAÑA 4: ANÁLISIS DE TIEMPOS (Intacta)
     # ---------------------------------------------------------
