@@ -676,19 +676,38 @@ try:
             st.dataframe(df_pv_filtrado, use_container_width=True, hide_index=True, height=450)
             
             # =========================================================
-            # 3. TABLA DE VISUALIZACIÓN
+            # TABLA DE VISUALIZACIÓN
             # =========================================================
-            st.write("### 📋 Detalle de Clientes")
+            c_tit_tabla, c_busq_tabla = st.columns([3, 1])
+            c_tit_tabla.write("### 📋 Detalle de Clientes")
+            busq_pv = c_busq_tabla.text_input("🔍 Búsqueda rápida:", placeholder="Nombre, correo, etc...", key="busq_pv")
             
-            busq_pv = st.text_input("🔍 Búsqueda rápida en Post Venta:", placeholder="Nombre, patente, teléfono...", key="busq_pv")
             if busq_pv:
                 mask_pv = df_pv_filtrado.apply(lambda row: row.astype(str).str.contains(busq_pv, case=False).any(), axis=1)
                 df_pv_filtrado = df_pv_filtrado[mask_pv]
             
-            if "Marca_Norm" in df_pv_filtrado.columns:
-                df_pv_filtrado = df_pv_filtrado.drop(columns=["Marca_Norm"])
+            # --- DEFINIMOS LAS COLUMNAS EXACTAS A MOSTRAR ---
+            columnas_deseadas_pv = [
+                "Nombre del cliente", 
+                "Correo electrónico del cliente", 
+                "Fecha del evento", 
+                "Estado de la Encuesta", 
+                "Fecha de invitación Inicial", 
+                "Primera fecha de recordatorio", 
+                "Segunda fecha de recordatorio", 
+                "Fecha de Vencimento Del Trabajo de Campo", 
+                "Encuesta interna"
+            ]
+            
+            # Nos aseguramos de pedir solo las columnas que existan en la hoja para evitar errores
+            cols_mostrar_pv = [c for c in columnas_deseadas_pv if c in df_pv_filtrado.columns]
                 
-            st.dataframe(df_pv_filtrado, use_container_width=True, hide_index=True, height=450)
+            st.dataframe(df_pv_filtrado[cols_mostrar_pv], use_container_width=True, hide_index=True, height=450)
+            
+            # Si alguna columna de las que pediste no se encuentra, te avisa abajo en chiquito
+            cols_faltantes_pv = set(columnas_deseadas_pv) - set(cols_mostrar_pv)
+            if cols_faltantes_pv:
+                st.caption(f"⚠️ Nota: No se encontraron las siguientes columnas: {', '.join(cols_faltantes_pv)}")
     # ---------------------------------------------------------
     # PESTAÑA 4: ANÁLISIS DE TIEMPOS (Intacta)
     # ---------------------------------------------------------
