@@ -604,9 +604,10 @@ try:
             st.divider()
             
             # =========================================================
-            # ESTRUCTURA HORIZONTAL Y FILTROS (Año + Estado)
+            # ESTRUCTURA HORIZONTAL Y FILTROS EN CASCADA
             # =========================================================
-            c_anio, c_filtro, c_p, c_c, c_t, c_asesores = st.columns([1, 1.5, 1, 1, 1, 4])
+            # Ajustamos las proporciones para acomodar los nuevos botones de marca
+            c_anio, c_filtro, c_marcas, c_t, c_asesores = st.columns([1, 1.5, 2.2, 1, 3.8])
             
             # 1. Filtro de Año
             with c_anio:
@@ -650,22 +651,40 @@ try:
             if estado_seleccionado != "Todos":
                 df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_estado_real].astype(str) == estado_seleccionado]
             
-            # --- KPIs DE MARCA ---
-            if "Marca" in df_pv_filtrado.columns:
-                df_pv_filtrado["Marca_Norm"] = df_pv_filtrado["Marca"].astype(str).str.upper()
-                cant_peugeot = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("PEUGEOT", na=False)])
-                cant_citroen = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("CITRO", na=False)])
-            else:
-                cant_peugeot = cant_citroen = 0
+            # 3. NUEVO: Filtro Interactivo de Marcas (Reemplaza a los KPIs fijos)
+            with c_marcas:
+                if "Marca" in df_pv_filtrado.columns:
+                    df_pv_filtrado["Marca_Norm"] = df_pv_filtrado["Marca"].astype(str).str.upper()
+                    cant_peugeot = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("PEUGEOT", na=False)])
+                    cant_citroen = len(df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains("CITRO", na=False)])
+                    
+                    opciones_marcas = []
+                    mapa_marcas = {}
+                    
+                    if cant_peugeot > 0:
+                        lbl_p = f"🦁 Peugeot ({cant_peugeot})"
+                        opciones_marcas.append(lbl_p)
+                        mapa_marcas[lbl_p] = "PEUGEOT"
+                    if cant_citroen > 0:
+                        lbl_c = f"⚙️ Citroën ({cant_citroen})"
+                        opciones_marcas.append(lbl_c)
+                        mapa_marcas[lbl_c] = "CITRO"
+                        
+                    if opciones_marcas:
+                        marca_seleccionada = st.pills("🏷️ Filtrar por Marca:", options=opciones_marcas, key="pills_marca_pv")
+                        
+                        # Si el usuario hace clic en una marca, filtramos la tabla base
+                        if marca_seleccionada:
+                            marca_real = mapa_marcas[marca_seleccionada]
+                            df_pv_filtrado = df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains(marca_real, na=False)]
+                else:
+                    st.warning("⚠️ Sin columna Marca")
             
-            with c_p:
-                st.metric("🦁 Peugeot", cant_peugeot)
-            with c_c:
-                st.metric("⚙️ Citroën", cant_citroen)
+            # 4. Total Filtrado (Dinámico: si tocás una marca, baja al total de esa marca)
             with c_t:
                 st.metric("📊 Total", len(df_pv_filtrado))
                 
-            # 3. Botones (Pills) con Cantidad y TR
+            # 5. Botones de Asesores (Se ajustan solos según la marca elegida)
             with c_asesores:
                 if col_asesor in df_pv_filtrado.columns:
                     conteo_asesores = df_pv_filtrado[col_asesor].value_counts()
@@ -676,7 +695,6 @@ try:
                         asesor_str = str(asesor).strip()
                         if asesor_str and asesor_str.lower() not in ['nan', 'none', '']:
                             tr_actual = dict_tr_asesores.get(asesor_str, "0.0%")
-                            # Etiqueta visual: NOMBRE (Cantidad) - TR: %
                             label_boton = f"{asesor_str} ({cant}) | TR: {tr_actual}"
                             opciones_pills.append(label_boton)
                             mapa_asesores[label_boton] = asesor_str
@@ -687,6 +705,7 @@ try:
                             options=opciones_pills, 
                             key="pills_asesor_pv"
                         )
+                        # Si tocan a un asesor, aplicamos el filtro final
                         if asesor_seleccionado_label:
                             asesor_real = mapa_asesores[asesor_seleccionado_label]
                             df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_asesor].astype(str).str.strip() == asesor_real]
