@@ -110,7 +110,6 @@ try:
     df_pv.columns = [str(c).replace('\n', ' ').replace('\r', ' ').strip() for c in df_pv.columns]
     df_pv.columns = [" ".join(c.split()) for c in df_pv.columns]
 
-
     # --- CREACIÓN DE PESTAÑAS (Ahora son 4) ---
     tab_ho, tab_animacion_v, tab_animacion_pv, tab_tiempos = st.tabs([
         "🛡️ Gestión de Hand Over", 
@@ -781,8 +780,9 @@ try:
                 st.dataframe(df_final_estilizado, use_container_width=True, height=450)
             else:
                 st.warning("⚠️ No se detectó ninguna de las columnas solicitadas.")
+                
     # ---------------------------------------------------------
-    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (Intacta)
+    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (Actualizada con SLAs y Tablero de Auditoría)
     # ---------------------------------------------------------
     with tab_tiempos:
         st.header("⏱️ Análisis de Tiempos")
@@ -799,9 +799,10 @@ try:
         
         y_fact = df["Fecha de Facturacion"].dt.year.dropna().unique() if 'Fecha de Facturacion' in df.columns else []
         y_pat = df["Fecha de Patentamiento"].dt.year.dropna().unique() if 'Fecha de Patentamiento' in df.columns else []
-        años = sorted(list(set(y_fact) | set(y_pat)), reverse=True)
+        años_crudos = list(set(y_fact) | set(y_pat))
+        años_limpios = sorted([int(a) for a in años_crudos if pd.notna(a)], reverse=True)
         
-        año_sel = g_col1.selectbox("Año:", años if años else [2026], key="sel_año_t")
+        año_sel = g_col1.selectbox("Año:", años_limpios if años_limpios else [datetime.now().year], key="sel_año_t")
         tipo_g = g_col2.pills("Evolución Mensual de:", ["Facturación", "Patentamiento"], default="Facturación", key="pill_tipo_t")
 
         col_f = "Fecha de Facturacion" if tipo_g == "Facturación" else "Fecha de Patentamiento"
@@ -811,7 +812,10 @@ try:
             df_g = df[df[col_f].dt.year == año_sel].copy()
             if not df_g.empty:
                 df_g["Mes_Num"] = df_g[col_f].dt.month
-                df_g["Mes_Nom"] = df_g[col_f].dt.strftime('%B')
+                df_g["Mes_Nom"] = df_g["Mes_Num"].map({
+                    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
+                    7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+                })
                 resumen = df_g.groupby(["Mes_Num", "Mes_Nom"]).size().reset_index(name="Cant")
                 
                 fig_v = px.bar(
@@ -829,39 +833,93 @@ try:
 
         df_t = df[df[col_f].dt.year == año_sel].copy() if col_f in df.columns else pd.DataFrame()
         if mes_click and not df_t.empty:
-            df_t["Mes_Nom"] = df_t[col_f].dt.strftime('%B')
+            df_t["Mes_Num"] = df_t[col_f].dt.month
+            df_t["Mes_Nom"] = df_t["Mes_Num"].map({
+                1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
+                7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+            })
             df_t = df_t[df_t["Mes_Nom"] == mes_click]
 
-        hoy_np = np.datetime64(datetime.now().date())
+        # ==========================================
+        # NUEVA LÓGICA DE SLAs Y DÍAS HÁBILES
+        # ==========================================
+        SLA_LEGAJO = 2
+        SLA_INSCRIPCION = 1
+        SLA_PAPELES = 2
+        SLA_GESTORIA_TOTAL = 3
+        SLA_USI = 2
 
-        def calc_working_days(start, end):
-            if pd.isna(start): return None
-            f_inicio = np.datetime64(start, 'D')
-            f_final = np.datetime64(end, 'D') if pd.notna(end) else hoy_np
-            if f_inicio > f_final: return 0
-            dias = int(np.busday_count(f_inicio, f_final))
-            return dias if dias < 365 else None 
+        # Calcula días de Lunes a Viernes de forma automática y segura
+        def calcular_dias_habiles(start, end):
+            if pd.isna(start) or pd.isna(end):
+                return None
+            try:
+                s = pd.to_datetime(start)
+                e = pd.to_datetime(end)
+                if s > e: return 0
+                dias = len(pd.bdate_range(s, e)) - 1
+                return max(0, dias)
+            except:
+                return None
 
         if not df_t.empty:
-            df_t["Facturación a Gestor"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha de Facturacion"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
+            df_t["Días Legajo"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Pedido de Preparacion"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
+            df_t["Días Inscripción"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha de Patentamiento")), axis=1)
+            df_t["Días Papeles"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Patentamiento"), r.get("Fecha Disponibilidad Papeles")), axis=1)
+            df_t["Lead Time Gestoría"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha Disponibilidad Papeles")), axis=1)
+            df_t["Días USI"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha Disponibilidad Papeles"), r.get("Fecha de confirmacion de entrega")), axis=1)
+
+            st.write("### 🎯 Panel de Control de Tiempos (Promedios Mensuales)")
             
-            if "Fecha de Pedido de Preparacion" in df_t.columns and "Fecha de confirmacion de entrega" in df_t.columns:
-                df_t["Prep a Entrega"] = df_t.apply(lambda r: calc_working_days(r.get("Fecha de Pedido de Preparacion"), r.get("Fecha de confirmacion de entrega")), axis=1)
+            prom_legajo = df_t["Días Legajo"].mean()
+            prom_inscripcion = df_t["Días Inscripción"].mean()
+            prom_papeles = df_t["Días Papeles"].mean()
+            prom_gestoria = df_t["Lead Time Gestoría"].mean()
+            prom_usi = df_t["Días USI"].mean()
+
+            m1, m2, m3, m4, m5 = st.columns(5)
             
-            st.write("### 📈 Promedios de Demora (Días Hábiles)")
-            c1, c2, c3 = st.columns(3)
-            
-            mean_fact_gestor = df_t['Facturación a Gestor'].mean() if not df_t['Facturación a Gestor'].dropna().empty else 0
-            c1.metric("Facturación ➔ Gestor", f"{mean_fact_gestor:.1f} días" if mean_fact_gestor else "-")
-            
-            if "Prep a Entrega" in df_t.columns:
-                mean_prep_ent = df_t['Prep a Entrega'].mean() if not df_t['Prep a Entrega'].dropna().empty else 0
-                c2.metric("Prep ➔ Entrega", f"{mean_prep_ent:.1f} días" if mean_prep_ent else "-")
-            
-            st.write("### 📋 Detalle de Tiempos por Operación")
-            
-            cols_mostrar = [c for c in ["Cliente", "Marca", "Fecha de Facturacion", "Fecha que el Gestor Retira Doc", "Facturación a Gestor", "Fecha de Pedido de Preparacion", "Fecha de confirmacion de entrega", "Prep a Entrega"] if c in df_t.columns]
-            st.dataframe(df_t[cols_mostrar], use_container_width=True, hide_index=True)
+            # Formato y Deltas (Si el valor es pd.notna, lo mostramos, si no "-")
+            m1.metric("1. Legajo", f"{prom_legajo:.1f} d" if pd.notna(prom_legajo) else "-", delta=f"Objetivo: {SLA_LEGAJO} d", delta_color="inverse")
+            m2.metric("2. Inscripción", f"{prom_inscripcion:.1f} d" if pd.notna(prom_inscripcion) else "-", delta=f"Objetivo: {SLA_INSCRIPCION} d", delta_color="inverse")
+            m3.metric("3. Retorno Papeles", f"{prom_papeles:.1f} d" if pd.notna(prom_papeles) else "-", delta=f"Objetivo: {SLA_PAPELES} d", delta_color="inverse")
+            m4.metric("📊 Total Gestoría", f"{prom_gestoria:.1f} d" if pd.notna(prom_gestoria) else "-", delta=f"Objetivo: {SLA_GESTORIA_TOTAL} d", delta_color="inverse")
+            m5.metric("4. Sector USI", f"{prom_usi:.1f} d" if pd.notna(prom_usi) else "-", delta=f"Objetivo: {SLA_USI} d", delta_color="inverse")
+
+            st.write("### 📋 Matriz de Auditoría Operativa (Rojo = SLA Incumplido)")
+
+            # Formato condicional de la tabla de alertas
+            def resaltar_demoras(row):
+                estilos = [''] * len(row)
+                alertas = {
+                    "Días Legajo": SLA_LEGAJO,
+                    "Días Inscripción": SLA_INSCRIPCION,
+                    "Días Papeles": SLA_PAPELES,
+                    "Lead Time Gestoría": SLA_GESTORIA_TOTAL,
+                    "Días USI": SLA_USI
+                }
+                
+                for col, sla in alertas.items():
+                    if col in row.index:
+                        idx = row.index.get_loc(col)
+                        valor = row[col]
+                        if pd.notna(valor) and valor > sla:
+                            estilos[idx] = 'background-color: #ffcccc; color: #990000; font-weight: bold;'
+                        elif pd.notna(valor) and valor <= sla:
+                            estilos[idx] = 'background-color: #ccffcc; color: #006600;'
+                            
+                return estilos
+
+            cols_mostrar = [
+                "Cliente", "Marca", "Chasis", 
+                "Días Legajo", "Días Inscripción", "Días Papeles", "Lead Time Gestoría", "Días USI"
+            ]
+            cols_ok = [c for c in cols_mostrar if c in df_t.columns]
+
+            # Aplicamos estilo condicional
+            df_estilizado = df_t[cols_ok].style.apply(resaltar_demoras, axis=1).format("{:.0f}", na_rep="-", subset=[c for c in cols_ok if "Días" in c or "Lead" in c])
+
+            st.dataframe(df_estilizado, use_container_width=True, hide_index=True, height=400)
         else:
             st.info("No hay datos para calcular tiempos operativos en el período seleccionado.")
 
