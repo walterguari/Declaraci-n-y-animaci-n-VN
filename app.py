@@ -605,7 +605,6 @@ try:
             # =========================================================
             # ESTRUCTURA HORIZONTAL Y FILTROS EN CASCADA
             # =========================================================
-            # Ajustamos las proporciones para acomodar los nuevos botones de marca
             c_anio, c_filtro, c_marcas, c_t, c_asesores = st.columns([1, 1.5, 2.2, 1, 3.8])
             
             # 1. Filtro de Año
@@ -650,7 +649,7 @@ try:
             if estado_seleccionado != "Todos":
                 df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_estado_real].astype(str) == estado_seleccionado]
             
-            # 3. NUEVO: Filtro Interactivo de Marcas (Reemplaza a los KPIs fijos)
+            # 3. Filtro Interactivo de Marcas
             with c_marcas:
                 if "Marca" in df_pv_filtrado.columns:
                     df_pv_filtrado["Marca_Norm"] = df_pv_filtrado["Marca"].astype(str).str.upper()
@@ -672,18 +671,17 @@ try:
                     if opciones_marcas:
                         marca_seleccionada = st.pills("🏷️ Filtrar por Marca:", options=opciones_marcas, key="pills_marca_pv")
                         
-                        # Si el usuario hace clic en una marca, filtramos la tabla base
                         if marca_seleccionada:
                             marca_real = mapa_marcas[marca_seleccionada]
                             df_pv_filtrado = df_pv_filtrado[df_pv_filtrado["Marca_Norm"].str.contains(marca_real, na=False)]
                 else:
                     st.warning("⚠️ Sin columna Marca")
             
-            # 4. Total Filtrado (Dinámico: si tocás una marca, baja al total de esa marca)
+            # 4. Total Filtrado
             with c_t:
                 st.metric("📊 Total", len(df_pv_filtrado))
                 
-            # 5. Botones de Asesores (Se ajustan solos según la marca elegida)
+            # 5. Botones de Asesores
             with c_asesores:
                 if col_asesor in df_pv_filtrado.columns:
                     conteo_asesores = df_pv_filtrado[col_asesor].value_counts()
@@ -704,7 +702,6 @@ try:
                             options=opciones_pills, 
                             key="pills_asesor_pv"
                         )
-                        # Si tocan a un asesor, aplicamos el filtro final
                         if asesor_seleccionado_label:
                             asesor_real = mapa_asesores[asesor_seleccionado_label]
                             df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_asesor].astype(str).str.strip() == asesor_real]
@@ -761,17 +758,14 @@ try:
                 nombres_cortos = {k: v for k, v in nombres_cortos.items() if k != "N/A" and k in df_final.columns}
                 df_final = df_final.rename(columns=nombres_cortos)
                 
-                # --- APLICACIÓN DE COLORES A LA COLUMNA MARCA ---
                 def estilizar_marca(row):
                     estilos = [''] * len(row)
                     if "Marca" in row.index:
                         idx_marca = row.index.get_loc("Marca")
                         marca_val = str(row["Marca"]).upper()
                         if "PEUGEOT" in marca_val:
-                            # Celeste Oscuro / Azul
                             estilos[idx_marca] = 'background-color: #1e3d59; color: white; font-weight: bold;'
                         elif "CITRO" in marca_val:
-                            # Naranja
                             estilos[idx_marca] = 'background-color: #ff6e40; color: white; font-weight: bold;'
                     return estilos
 
@@ -782,7 +776,7 @@ try:
                 st.warning("⚠️ No se detectó ninguna de las columnas solicitadas.")
                 
     # ---------------------------------------------------------
-    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (Actualizada con SLAs y Tablero de Auditoría)
+    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (RENOVADA PARA GERENCIA)
     # ---------------------------------------------------------
     with tab_tiempos:
         st.header("⏱️ Análisis de Tiempos")
@@ -792,62 +786,67 @@ try:
         v2.metric("Cantidad de Patentamientos", f"{df['Fecha de Patentamiento'].notna().sum()} Unid." if 'Fecha de Patentamiento' in df.columns else "0 Unid.")
 
         st.divider()
-        st.subheader("📊 Evolución Mensual e Interactividad")
-        st.info("💡 Hacé clic en una barra para filtrar las demoras y la tabla detallada.")
         
-        g_col1, g_col2 = st.columns(2)
-        
-        y_fact = df["Fecha de Facturacion"].dt.year.dropna().unique() if 'Fecha de Facturacion' in df.columns else []
-        y_pat = df["Fecha de Patentamiento"].dt.year.dropna().unique() if 'Fecha de Patentamiento' in df.columns else []
-        años_crudos = list(set(y_fact) | set(y_pat))
-        años_limpios = sorted([int(a) for a in años_crudos if pd.notna(a)], reverse=True)
-        
-        año_sel = g_col1.selectbox("Año:", años_limpios if años_limpios else [datetime.now().year], key="sel_año_t")
-        tipo_g = g_col2.pills("Evolución Mensual de:", ["Facturación", "Patentamiento"], default="Facturación", key="pill_tipo_t")
+        # 1. EXPANDER PARA GRÁFICO ORIGINAL
+        with st.expander("📊 Evolución Mensual e Interactividad (Clic para expandir)"):
+            st.info("💡 Hacé clic en una barra para auditar ese mes.")
+            
+            g_col1, g_col2 = st.columns(2)
+            
+            y_fact = df["Fecha de Facturacion"].dt.year.dropna().unique() if 'Fecha de Facturacion' in df.columns else []
+            y_pat = df["Fecha de Patentamiento"].dt.year.dropna().unique() if 'Fecha de Patentamiento' in df.columns else []
+            años_crudos = list(set(y_fact) | set(y_pat))
+            años_limpios = sorted([int(a) for a in años_crudos if pd.notna(a)], reverse=True)
+            
+            año_sel_graf = g_col1.selectbox("Año (Gráfico):", años_limpios if años_limpios else [datetime.now().year], key="sel_año_graf")
+            tipo_g = g_col2.pills("Evolución Mensual de:", ["Facturación", "Patentamiento"], default="Facturación", key="pill_tipo_graf")
 
-        col_f = "Fecha de Facturacion" if tipo_g == "Facturación" else "Fecha de Patentamiento"
+            col_f_graf = "Fecha de Facturacion" if tipo_g == "Facturación" else "Fecha de Patentamiento"
+            
+            if col_f_graf in df.columns and not df.empty:
+                df_g = df[df[col_f_graf].dt.year == año_sel_graf].copy()
+                if not df_g.empty:
+                    df_g["Mes_Num"] = df_g[col_f_graf].dt.month
+                    df_g["Mes_Nom"] = df_g["Mes_Num"].map({
+                        1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
+                        7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+                    })
+                    resumen = df_g.groupby(["Mes_Num", "Mes_Nom"]).size().reset_index(name="Cant")
+                    
+                    fig_v = px.bar(
+                        resumen.sort_values("Mes_Num"), x="Mes_Nom", y="Cant", text_auto=True, 
+                        title=f"Volumen de {tipo_g} - {año_sel_graf}", 
+                        color_discrete_sequence=['#3498db' if tipo_g == "Facturación" else '#2ecc71'],
+                        template="plotly_white", height=300
+                    )
+                    st.plotly_chart(fig_v, use_container_width=True)
+
+        st.divider()
+
+        # 2. PANEL DE CONTROL DE GERENCIA (FILTROS GLOBALES)
+        st.write("### 🎯 Panel de Control de Tiempos (Promedios Mensuales)")
         
-        mes_click = None
-        if col_f in df.columns and not df.empty:
-            df_g = df[df[col_f].dt.year == año_sel].copy()
-            if not df_g.empty:
-                df_g["Mes_Num"] = df_g[col_f].dt.month
-                df_g["Mes_Nom"] = df_g["Mes_Num"].map({
-                    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
-                    7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
-                })
-                resumen = df_g.groupby(["Mes_Num", "Mes_Nom"]).size().reset_index(name="Cant")
-                
-                fig_v = px.bar(
-                    resumen.sort_values("Mes_Num"), x="Mes_Nom", y="Cant", text_auto=True, 
-                    title=f"Volumen de {tipo_g} - {año_sel}", 
-                    color_discrete_sequence=['#3498db' if tipo_g == "Facturación" else '#2ecc71'],
-                    template="plotly_white"
-                )
-                
-                evento_clic = st.plotly_chart(fig_v, use_container_width=True, on_select="rerun", key="g_tiempos")
-                
-                if evento_clic and "selection" in evento_clic and evento_clic["selection"]["points"]:
-                    mes_click = evento_clic["selection"]["points"][0]["x"]
-                    st.success(f"🔎 Auditando {tipo_g}: **{mes_click} {año_sel}**")
+        col_filtro_y, col_filtro_m, _ = st.columns([1, 1, 2])
+        año_panel = col_filtro_y.selectbox("📅 Seleccione Año:", ["Todos"] + años_limpios, key="año_panel")
+        mes_panel = col_filtro_m.selectbox("📅 Seleccione Mes (Facturación):", ["Todos"] + list(MESES_ESP.values()), key="mes_panel")
 
-        df_t = df[df[col_f].dt.year == año_sel].copy() if col_f in df.columns else pd.DataFrame()
-        if mes_click and not df_t.empty:
-            df_t["Mes_Num"] = df_t[col_f].dt.month
-            df_t["Mes_Nom"] = df_t["Mes_Num"].map({
-                1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
-                7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
-            })
-            df_t = df_t[df_t["Mes_Nom"] == mes_click]
+        # Filtrar el dataframe central según selección
+        df_t = df.copy()
+        if "Fecha de Facturacion" in df_t.columns:
+            if año_panel != "Todos":
+                df_t = df_t[df_t["Fecha de Facturacion"].dt.year == int(año_panel)]
+            if mes_panel != "Todos":
+                mes_num_reves = {v: k for k, v in MESES_ESP.items()}
+                df_t = df_t[df_t["Fecha de Facturacion"].dt.month == mes_num_reves[mes_panel]]
 
-        # ==========================================
-        # NUEVA LÓGICA DE SLAs Y DÍAS HÁBILES
-        # ==========================================
-        SLA_LEGAJO = 2
-        SLA_INSCRIPCION = 1
-        SLA_PAPELES = 2
-        SLA_GESTORIA_TOTAL = 3
-        SLA_USI = 2
+        # 3. LÓGICA DE SLAs Y CÁLCULO DE DÍAS HÁBILES
+        SLA_CONFIG = {
+            "Días Legajo": {"sla": 2, "icon": "📁", "label": "Legajo"},
+            "Días Inscripción": {"sla": 1, "icon": "📝", "label": "Inscripción"},
+            "Días Papeles": {"sla": 2, "icon": "📄", "label": "Retorno Papeles"},
+            "Lead Time Gestoría": {"sla": 3, "icon": "📊", "label": "Total Gestoría"},
+            "Días USI": {"sla": 2, "icon": "🚗", "label": "Sector USI"}
+        }
 
         # Calcula días de Lunes a Viernes de forma automática y segura
         def calcular_dias_habiles(start, end):
@@ -869,57 +868,99 @@ try:
             df_t["Lead Time Gestoría"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha Disponibilidad Papeles")), axis=1)
             df_t["Días USI"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha Disponibilidad Papeles"), r.get("Fecha de confirmacion de entrega")), axis=1)
 
-            st.write("### 🎯 Panel de Control de Tiempos (Promedios Mensuales)")
+            # 4. BOTONES INTERACTIVOS (PILLS)
+            st.caption("💡 Haz clic en un botón para auditar el KPI, ver el % de cumplimiento y filtrar la matriz de abajo.")
             
-            prom_legajo = df_t["Días Legajo"].mean()
-            prom_inscripcion = df_t["Días Inscripción"].mean()
-            prom_papeles = df_t["Días Papeles"].mean()
-            prom_gestoria = df_t["Lead Time Gestoría"].mean()
-            prom_usi = df_t["Días USI"].mean()
-
-            m1, m2, m3, m4, m5 = st.columns(5)
+            opciones_pills = []
+            mapa_pills_a_columna = {}
             
-            # Formato y Deltas (Si el valor es pd.notna, lo mostramos, si no "-")
-            m1.metric("1. Legajo", f"{prom_legajo:.1f} d" if pd.notna(prom_legajo) else "-", delta=f"Objetivo: {SLA_LEGAJO} d", delta_color="inverse")
-            m2.metric("2. Inscripción", f"{prom_inscripcion:.1f} d" if pd.notna(prom_inscripcion) else "-", delta=f"Objetivo: {SLA_INSCRIPCION} d", delta_color="inverse")
-            m3.metric("3. Retorno Papeles", f"{prom_papeles:.1f} d" if pd.notna(prom_papeles) else "-", delta=f"Objetivo: {SLA_PAPELES} d", delta_color="inverse")
-            m4.metric("📊 Total Gestoría", f"{prom_gestoria:.1f} d" if pd.notna(prom_gestoria) else "-", delta=f"Objetivo: {SLA_GESTORIA_TOTAL} d", delta_color="inverse")
-            m5.metric("4. Sector USI", f"{prom_usi:.1f} d" if pd.notna(prom_usi) else "-", delta=f"Objetivo: {SLA_USI} d", delta_color="inverse")
+            for col, datos in SLA_CONFIG.items():
+                promedio = df_t[col].mean()
+                texto_prom = f"{promedio:.1f}d" if pd.notna(promedio) else "S/D"
+                alerta = " 🔴" if pd.notna(promedio) and promedio > datos["sla"] else ""
+                label_completo = f"{datos['icon']} {datos['label']} (Prom: {texto_prom}){alerta}"
+                
+                opciones_pills.append(label_completo)
+                mapa_pills_a_columna[label_completo] = col
 
+            kpi_seleccionado_label = st.pills("Selecciona un Tramo a Analizar:", options=opciones_pills, default=opciones_pills[-1])
+            col_kpi = mapa_pills_a_columna.get(kpi_seleccionado_label, "Días USI")
+            sla_actual = SLA_CONFIG[col_kpi]["sla"]
+
+            st.divider()
+
+            # 5. DASHBOARD GERENCIAL (GRÁFICOS)
+            st.write(f"#### Análisis Detallado: **{SLA_CONFIG[col_kpi]['label']}** (Objetivo: {sla_actual} días)")
+            col_chart1, col_chart2 = st.columns(2)
+
+            df_kpi = df_t[df_t[col_kpi].notna()].copy()
+
+            if not df_kpi.empty:
+                # Gráfico 1: Tasa de Cumplimiento (Donut)
+                df_kpi["Status SLA"] = np.where(df_kpi[col_kpi] <= sla_actual, "✅ En Término", "🚨 Demorado")
+                conteo_sla = df_kpi["Status SLA"].value_counts().reset_index()
+                conteo_sla.columns = ["Status", "Cantidad"]
+                
+                fig_donut = px.pie(
+                    conteo_sla, values="Cantidad", names="Status", hole=0.5,
+                    title=f"Tasa de Cumplimiento",
+                    color="Status",
+                    color_discrete_map={"✅ En Término": "#2ecc71", "🚨 Demorado": "#e74c3c"}
+                )
+                fig_donut.update_traces(textinfo='percent+value', hoverinfo='label+percent')
+                fig_donut.update_layout(height=320, margin=dict(t=40, b=0, l=0, r=0))
+                col_chart1.plotly_chart(fig_donut, use_container_width=True)
+
+                # Gráfico 2: Comparativa por Marca (Barras)
+                if "Marca" in df_kpi.columns:
+                    df_kpi["Marca_Lim"] = np.where(df_kpi["Marca"].astype(str).str.upper().str.contains("PEUGEOT"), "Peugeot",
+                                          np.where(df_kpi["Marca"].astype(str).str.upper().str.contains("CITRO"), "Citroën", "Otra"))
+                    
+                    promedios_marca = df_kpi.groupby("Marca_Lim")[col_kpi].mean().reset_index()
+                    fig_bar = px.bar(
+                        promedios_marca, x="Marca_Lim", y=col_kpi, text_auto=".1f",
+                        title="Promedio por Marca",
+                        color="Marca_Lim",
+                        color_discrete_map={"Peugeot": "#1e3d59", "Citroën": "#ff6e40", "Otra": "#b0bec5"},
+                        template="plotly_white"
+                    )
+                    fig_bar.add_hline(y=sla_actual, line_dash="dot", line_color="red", annotation_text="Objetivo SLA")
+                    fig_bar.update_layout(height=320, margin=dict(t=40, b=0, l=0, r=0), showlegend=False, xaxis_title="", yaxis_title="Días Hábiles")
+                    col_chart2.plotly_chart(fig_bar, use_container_width=True)
+            else:
+                st.info("No hay registros suficientes para graficar este KPI en el período seleccionado.")
+
+            # 6. TABLA DE AUDITORÍA (FILTRADA Y ORDENADA)
             st.write("### 📋 Matriz de Auditoría Operativa (Rojo = SLA Incumplido)")
 
-            # Formato condicional de la tabla de alertas
+            # Ordenamos para poner los casos más graves arriba
+            if not df_kpi.empty:
+                df_kpi = df_kpi.sort_values(by=col_kpi, ascending=False)
+
             def resaltar_demoras(row):
                 estilos = [''] * len(row)
-                alertas = {
-                    "Días Legajo": SLA_LEGAJO,
-                    "Días Inscripción": SLA_INSCRIPCION,
-                    "Días Papeles": SLA_PAPELES,
-                    "Lead Time Gestoría": SLA_GESTORIA_TOTAL,
-                    "Días USI": SLA_USI
-                }
-                
-                for col, sla in alertas.items():
-                    if col in row.index:
-                        idx = row.index.get_loc(col)
-                        valor = row[col]
-                        if pd.notna(valor) and valor > sla:
+                for c_name, c_data in SLA_CONFIG.items():
+                    if c_name in row.index:
+                        idx = row.index.get_loc(c_name)
+                        val = row[c_name]
+                        if pd.notna(val) and val > c_data["sla"]:
                             estilos[idx] = 'background-color: #ffcccc; color: #990000; font-weight: bold;'
-                        elif pd.notna(valor) and valor <= sla:
+                        elif pd.notna(val) and val <= c_data["sla"]:
                             estilos[idx] = 'background-color: #ccffcc; color: #006600;'
-                            
                 return estilos
 
             cols_mostrar = [
                 "Cliente", "Marca", "Chasis", 
                 "Días Legajo", "Días Inscripción", "Días Papeles", "Lead Time Gestoría", "Días USI"
             ]
-            cols_ok = [c for c in cols_mostrar if c in df_t.columns]
+            cols_ok = [c for c in cols_mostrar if c in df_kpi.columns]
 
-            # Aplicamos estilo condicional
-            df_estilizado = df_t[cols_ok].style.apply(resaltar_demoras, axis=1).format("{:.0f}", na_rep="-", subset=[c for c in cols_ok if "Días" in c or "Lead" in c])
+            if not df_kpi.empty:
+                df_estilizado = df_kpi[cols_ok].style.apply(resaltar_demoras, axis=1).format("{:.0f}", na_rep="-", subset=[c for c in cols_ok if "Días" in c or "Lead" in c])
+                st.dataframe(df_estilizado, use_container_width=True, hide_index=True, height=400)
+            else:
+                st.warning("Selecciona otro mes o KPI. No hay datos para mostrar en la matriz.")
 
-            st.dataframe(df_estilizado, use_container_width=True, hide_index=True, height=400)
         else:
             st.info("No hay datos para calcular tiempos operativos en el período seleccionado.")
 
