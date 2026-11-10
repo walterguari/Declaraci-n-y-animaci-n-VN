@@ -67,7 +67,7 @@ try:
     cols_a_fecha = [
         "Fecha de Patentamiento", "Fecha de Hand over", "Fecha de Facturacion",
         "Fecha que el Gestor Retira Doc", "Fecha Disponibilidad Papeles",
-        "Fecha de confirmacion de entrega", "Fecha de Pedido de Preparacion",
+        "Fecha de confirmacion de entrega", "Fecha de Pedido de Preparación",
         "Fecha de invitación Inicial", "Primera fecha de recordatorio",
         "Segunda fecha de recordatorio", "Fecha de Vencimento Del Trabajo de Campo"
     ]
@@ -904,8 +904,8 @@ try:
 
         if not df_t.empty:
             # Aplicamos función especial para el tramo administrativo y estándar para el resto
-           df_t["Días Legajo"] = df_t.apply(lambda r: calcular_dias_legajo(r.get("Fecha de Pedido de Preparación"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
-df_t["Auditoría Carga Legajo"] = df_t.apply(lambda r: auditar_carga_administrativa(r.get("Fecha de Pedido de Preparación"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
+            df_t["Días Legajo"] = df_t.apply(lambda r: calcular_dias_legajo(r.get("Fecha de Pedido de Preparación"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
+            df_t["Auditoría Carga Legajo"] = df_t.apply(lambda r: auditar_carga_administrativa(r.get("Fecha de Pedido de Preparación"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
             
             df_t["Días Inscripción"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha de Patentamiento")), axis=1)
             df_t["Días Papeles"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Patentamiento"), r.get("Fecha Disponibilidad Papeles")), axis=1)
