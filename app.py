@@ -839,13 +839,38 @@ try:
                 mes_num_reves = {v: k for k, v in MESES_ESP.items()}
                 df_t = df_t[df_t["Fecha de Facturacion"].dt.month == mes_num_reves[mes_panel]]
 
-        # 3. LÓGICA DE SLAs Y CÁLCULO DE DÍAS HÁBILES
+        # 3. LÓGICA DE SLAs Y CÁLCULO DE DÍAS HÁBILES (CON NUEVOS NOMBRES Y DESCRIPCIONES)
         SLA_CONFIG = {
-            "Días Legajo": {"sla": 2, "icon": "📁", "label": "Legajo"},
-            "Días Inscripción": {"sla": 1, "icon": "📝", "label": "Inscripción"},
-            "Días Papeles": {"sla": 2, "icon": "📄", "label": "Retorno Papeles"},
-            "Lead Time Gestoría": {"sla": 3, "icon": "📊", "label": "Total Gestoría"},
-            "Días USI": {"sla": 2, "icon": "🚗", "label": "Sector USI"}
+            "Días Legajo": {
+                "sla": 2, 
+                "icon": "📁", 
+                "label": "Gestión administrativa",
+                "desc": "Calcula el tiempo desde el Pedido de Preparación hasta que el Gestor retira la documentación."
+            },
+            "Días Inscripción": {
+                "sla": 1, 
+                "icon": "📝", 
+                "label": "Gestoría: Tiempo de Inscripción",
+                "desc": "Calcula el tiempo desde que el Gestor retira la documentación hasta el Patentamiento."
+            },
+            "Días Papeles": {
+                "sla": 2, 
+                "icon": "📄", 
+                "label": "Gestoria: Disponibilidad de papeles",
+                "desc": "Calcula el tiempo desde el Patentamiento hasta que los papeles están disponibles en sucursal."
+            },
+            "Lead Time Gestoría": {
+                "sla": 3, 
+                "icon": "📊", 
+                "label": "Total Gestoría",
+                "desc": "Calcula el tiempo total externo, desde que el Gestor retira la documentación hasta la disponibilidad de papeles."
+            },
+            "Días USI": {
+                "sla": 2, 
+                "icon": "🚗", 
+                "label": "Sector USI",
+                "desc": "Calcula el tiempo desde que los papeles están disponibles hasta la confirmación de entrega al cliente."
+            }
         }
 
         # Calcula días de Lunes a Viernes de forma automática y segura
@@ -868,7 +893,7 @@ try:
             df_t["Lead Time Gestoría"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha Disponibilidad Papeles")), axis=1)
             df_t["Días USI"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha Disponibilidad Papeles"), r.get("Fecha de confirmacion de entrega")), axis=1)
 
-            # 4. BOTONES INTERACTIVOS (PILLS)
+            # 4. BOTONES INTERACTIVOS (PILLS) CON TEXTO EMERGENTE (TOOLTIP) GLOBAL
             st.caption("💡 Haz clic en un botón para auditar el KPI, ver el % de cumplimiento y filtrar la matriz de abajo.")
             
             opciones_pills = []
@@ -883,9 +908,16 @@ try:
                 opciones_pills.append(label_completo)
                 mapa_pills_a_columna[label_completo] = col
 
-            kpi_seleccionado_label = st.pills("Selecciona un Tramo a Analizar:", options=opciones_pills, default=opciones_pills[-1])
+            # Tooltip general que aparece al acercar el mouse al símbolo de pregunta (?) del widget
+            texto_ayuda_tooltip = "Definiciones de Tramos:\n\n" + "\n\n".join([f"• {v['label']}: {v['desc']}" for v in SLA_CONFIG.values()])
+            
+            kpi_seleccionado_label = st.pills("Selecciona un Tramo a Analizar:", options=opciones_pills, default=opciones_pills[-1], help=texto_ayuda_tooltip)
             col_kpi = mapa_pills_a_columna.get(kpi_seleccionado_label, "Días USI")
             sla_actual = SLA_CONFIG[col_kpi]["sla"]
+            desc_actual = SLA_CONFIG[col_kpi]["desc"]
+
+            # Mensaje dinámico inferior (reacciona al instante indicando qué calcula el botón seleccionado)
+            st.info(f"ℹ️ **¿Qué calcula este tramo?** {desc_actual}")
 
             st.divider()
 
@@ -956,7 +988,25 @@ try:
             cols_ok = [c for c in cols_mostrar if c in df_kpi.columns]
 
             if not df_kpi.empty:
-                df_estilizado = df_kpi[cols_ok].style.apply(resaltar_demoras, axis=1).format("{:.0f}", na_rep="-", subset=[c for c in cols_ok if "Días" in c or "Lead" in c])
+                # Renombramos las columnas de la tabla final para que coincidan con los nuevos nombres
+                mapeo_columnas_tabla = {c_name: c_data["label"] for c_name, c_data in SLA_CONFIG.items()}
+                df_kpi_renombrado = df_kpi[cols_ok].rename(columns=mapeo_columnas_tabla)
+                
+                # Ajustamos la función de estilo a las nuevas columnas renombradas
+                def resaltar_demoras_renombrado(row):
+                    estilos = [''] * len(row)
+                    for c_name, c_data in SLA_CONFIG.items():
+                        col_renombrada = c_data["label"]
+                        if col_renombrada in row.index:
+                            idx = row.index.get_loc(col_renombrada)
+                            val = row[col_renombrada]
+                            if pd.notna(val) and val > c_data["sla"]:
+                                estilos[idx] = 'background-color: #ffcccc; color: #990000; font-weight: bold;'
+                            elif pd.notna(val) and val <= c_data["sla"]:
+                                estilos[idx] = 'background-color: #ccffcc; color: #006600;'
+                    return estilos
+
+                df_estilizado = df_kpi_renombrado.style.apply(resaltar_demoras_renombrado, axis=1).format("{:.0f}", na_rep="-", subset=list(mapeo_columnas_tabla.values()))
                 st.dataframe(df_estilizado, use_container_width=True, hide_index=True, height=400)
             else:
                 st.warning("Selecciona otro mes o KPI. No hay datos para mostrar en la matriz.")
