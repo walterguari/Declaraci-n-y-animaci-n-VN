@@ -776,7 +776,7 @@ try:
                 st.warning("⚠️ No se detectó ninguna de las columnas solicitadas.")
                 
     # ---------------------------------------------------------
-    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (RENOVADA PARA GERENCIA)
+    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (RENOVADA PARA GERENCIA + AUDITORÍA DE CARGA)
     # ---------------------------------------------------------
     with tab_tiempos:
         st.header("⏱️ Análisis de Tiempos")
@@ -830,7 +830,6 @@ try:
         año_panel = col_filtro_y.selectbox("📅 Seleccione Año:", ["Todos"] + años_limpios, key="año_panel")
         mes_panel = col_filtro_m.selectbox("📅 Seleccione Mes (Facturación):", ["Todos"] + list(MESES_ESP.values()), key="mes_panel")
 
-        # Filtrar el dataframe central según selección
         df_t = df.copy()
         if "Fecha de Facturacion" in df_t.columns:
             if año_panel != "Todos":
@@ -839,13 +838,13 @@ try:
                 mes_num_reves = {v: k for k, v in MESES_ESP.items()}
                 df_t = df_t[df_t["Fecha de Facturacion"].dt.month == mes_num_reves[mes_panel]]
 
-        # 3. LÓGICA DE SLAs Y CÁLCULO DE DÍAS HÁBILES (CON NUEVOS NOMBRES Y DESCRIPCIONES)
+        # 3. LÓGICA DE SLAs Y CÁLCULO DE DÍAS HÁBILES
         SLA_CONFIG = {
             "Días Legajo": {
                 "sla": 2, 
                 "icon": "📁", 
                 "label": "Gestión administrativa",
-                "desc": "Calcula el tiempo desde el Pedido de Preparación hasta que el Gestor retira la documentación."
+                "desc": "Calcula los días hábiles entre el Pedido de Preparación y el Retiro de Documentación. Si se cargó tarde en el sistema (fecha de pedido posterior al retiro), mide los días de atraso de carga."
             },
             "Días Inscripción": {
                 "sla": 1, 
@@ -873,27 +872,47 @@ try:
             }
         }
 
-        # Calcula días de Lunes a Viernes de forma automática y segura
+        # Función estándar para medir diferencias lógicas
         def calcular_dias_habiles(start, end):
-            if pd.isna(start) or pd.isna(end):
-                return None
+            if pd.isna(start) or pd.isna(end): return None
             try:
-                s = pd.to_datetime(start)
-                e = pd.to_datetime(end)
+                s, e = pd.to_datetime(start), pd.to_datetime(end)
                 if s > e: return 0
-                dias = len(pd.bdate_range(s, e)) - 1
-                return max(0, dias)
-            except:
-                return None
+                return max(0, len(pd.bdate_range(s, e)) - 1)
+            except: return None
+
+        # FUNCIÓN ESPECIAL BIDIRECCIONAL: Para auditar atrasos de carga en "Gestión Administrativa"
+        def calcular_dias_legajo(start, end):
+            if pd.isna(start) or pd.isna(end): return None
+            try:
+                s, e = pd.to_datetime(start), pd.to_datetime(end)
+                if s <= e:
+                    return max(0, len(pd.bdate_range(s, e)) - 1) # Flujo Normal
+                else:
+                    return max(0, len(pd.bdate_range(e, s)) - 1) # Atraso de Carga (Fechas Invertidas)
+            except: return None
+
+        # Etiquetador visual de Calidad de Carga
+        def auditar_carga_administrativa(start, end):
+            if pd.isna(start) or pd.isna(end): return "Sin datos"
+            try:
+                s, e = pd.to_datetime(start), pd.to_datetime(end)
+                if s == e: return "⚡ En el día"
+                elif s < e: return "✅ Normal"
+                else: return "🚨 Carga Atrasada"
+            except: return "Sin datos"
 
         if not df_t.empty:
-            df_t["Días Legajo"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Pedido de Preparacion"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
+            # Aplicamos función especial para el tramo administrativo y estándar para el resto
+            df_t["Días Legajo"] = df_t.apply(lambda r: calcular_dias_legajo(r.get("Fecha de Pedido de Preparacion"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
+            df_t["Auditoría Carga Legajo"] = df_t.apply(lambda r: auditar_carga_administrativa(r.get("Fecha de Pedido de Preparacion"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
+            
             df_t["Días Inscripción"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha de Patentamiento")), axis=1)
             df_t["Días Papeles"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Patentamiento"), r.get("Fecha Disponibilidad Papeles")), axis=1)
             df_t["Lead Time Gestoría"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha Disponibilidad Papeles")), axis=1)
             df_t["Días USI"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha Disponibilidad Papeles"), r.get("Fecha de confirmacion de entrega")), axis=1)
 
-            # 4. BOTONES INTERACTIVOS (PILLS) CON TEXTO EMERGENTE (TOOLTIP) GLOBAL
+            # 4. BOTONES INTERACTIVOS (PILLS)
             st.caption("💡 Haz clic en un botón para auditar el KPI, ver el % de cumplimiento y filtrar la matriz de abajo.")
             
             opciones_pills = []
@@ -908,7 +927,6 @@ try:
                 opciones_pills.append(label_completo)
                 mapa_pills_a_columna[label_completo] = col
 
-            # Tooltip general que aparece al acercar el mouse al símbolo de pregunta (?) del widget
             texto_ayuda_tooltip = "Definiciones de Tramos:\n\n" + "\n\n".join([f"• {v['label']}: {v['desc']}" for v in SLA_CONFIG.values()])
             
             kpi_seleccionado_label = st.pills("Selecciona un Tramo a Analizar:", options=opciones_pills, default=opciones_pills[-1], help=texto_ayuda_tooltip)
@@ -916,18 +934,29 @@ try:
             sla_actual = SLA_CONFIG[col_kpi]["sla"]
             desc_actual = SLA_CONFIG[col_kpi]["desc"]
 
-            # Mensaje dinámico inferior (reacciona al instante indicando qué calcula el botón seleccionado)
             st.info(f"ℹ️ **¿Qué calcula este tramo?** {desc_actual}")
 
             st.divider()
 
             # 5. DASHBOARD GERENCIAL (GRÁFICOS)
             st.write(f"#### Análisis Detallado: **{SLA_CONFIG[col_kpi]['label']}** (Objetivo: {sla_actual} días)")
-            col_chart1, col_chart2 = st.columns(2)
-
+            
             df_kpi = df_t[df_t[col_kpi].notna()].copy()
 
             if not df_kpi.empty:
+                # --- MÉTRICAS ESPECIALES SI ESTAMOS AUDITANDO LEGAJO ---
+                if col_kpi == "Días Legajo":
+                    conteo_aud = df_kpi["Auditoría Carga Legajo"].value_counts(normalize=True) * 100
+                    pct_dia = conteo_aud.get("⚡ En el día", 0)
+                    pct_atrasada = conteo_aud.get("🚨 Carga Atrasada", 0)
+                    
+                    c_aud1, c_aud2, _ = st.columns([2, 2, 4])
+                    c_aud1.success(f"⚡ **Gestión en el Día:** {pct_dia:.1f}%")
+                    c_aud2.error(f"🚨 **Cargas Atrasadas:** {pct_atrasada:.1f}%")
+                    st.markdown("<br>", unsafe_allow_html=True)
+                
+                col_chart1, col_chart2 = st.columns(2)
+                
                 # Gráfico 1: Tasa de Cumplimiento (Donut)
                 df_kpi["Status SLA"] = np.where(df_kpi[col_kpi] <= sla_actual, "✅ En Término", "🚨 Demorado")
                 conteo_sla = df_kpi["Status SLA"].value_counts().reset_index()
@@ -965,36 +994,26 @@ try:
             # 6. TABLA DE AUDITORÍA (FILTRADA Y ORDENADA)
             st.write("### 📋 Matriz de Auditoría Operativa (Rojo = SLA Incumplido)")
 
-            # Ordenamos para poner los casos más graves arriba
             if not df_kpi.empty:
                 df_kpi = df_kpi.sort_values(by=col_kpi, ascending=False)
 
-            def resaltar_demoras(row):
-                estilos = [''] * len(row)
-                for c_name, c_data in SLA_CONFIG.items():
-                    if c_name in row.index:
-                        idx = row.index.get_loc(c_name)
-                        val = row[c_name]
-                        if pd.notna(val) and val > c_data["sla"]:
-                            estilos[idx] = 'background-color: #ffcccc; color: #990000; font-weight: bold;'
-                        elif pd.notna(val) and val <= c_data["sla"]:
-                            estilos[idx] = 'background-color: #ccffcc; color: #006600;'
-                return estilos
-
             cols_mostrar = [
-                "Cliente", "Marca", "Chasis", 
+                "Cliente", "Marca", "Chasis", "Auditoría Carga Legajo",
                 "Días Legajo", "Días Inscripción", "Días Papeles", "Lead Time Gestoría", "Días USI"
             ]
             cols_ok = [c for c in cols_mostrar if c in df_kpi.columns]
 
             if not df_kpi.empty:
-                # Renombramos las columnas de la tabla final para que coincidan con los nuevos nombres
+                # Renombramos para la matriz
                 mapeo_columnas_tabla = {c_name: c_data["label"] for c_name, c_data in SLA_CONFIG.items()}
+                mapeo_columnas_tabla["Auditoría Carga Legajo"] = "Estado de Carga"
                 df_kpi_renombrado = df_kpi[cols_ok].rename(columns=mapeo_columnas_tabla)
                 
-                # Ajustamos la función de estilo a las nuevas columnas renombradas
+                # Función de estilo ajustada
                 def resaltar_demoras_renombrado(row):
                     estilos = [''] * len(row)
+                    
+                    # Pintamos las columnas numéricas de SLAs
                     for c_name, c_data in SLA_CONFIG.items():
                         col_renombrada = c_data["label"]
                         if col_renombrada in row.index:
@@ -1004,9 +1023,21 @@ try:
                                 estilos[idx] = 'background-color: #ffcccc; color: #990000; font-weight: bold;'
                             elif pd.notna(val) and val <= c_data["sla"]:
                                 estilos[idx] = 'background-color: #ccffcc; color: #006600;'
+                    
+                    # Pintamos la columna de Auditoría de Carga (Atrasos en naranja)
+                    if "Estado de Carga" in row.index:
+                        idx_aud = row.index.get_loc("Estado de Carga")
+                        val_aud = str(row["Estado de Carga"])
+                        if "Atrasada" in val_aud:
+                            estilos[idx_aud] = 'background-color: #ffebcc; color: #cc6600; font-weight: bold;'
+                        elif "En el día" in val_aud:
+                            estilos[idx_aud] = 'color: #006600; font-weight: bold;'
+                            
                     return estilos
 
-                df_estilizado = df_kpi_renombrado.style.apply(resaltar_demoras_renombrado, axis=1).format("{:.0f}", na_rep="-", subset=list(mapeo_columnas_tabla.values()))
+                # Solo aplicamos "format" de cero decimales a las columnas numéricas
+                cols_numericas_formato = [c for c in df_kpi_renombrado.columns if c in [d["label"] for d in SLA_CONFIG.values()]]
+                df_estilizado = df_kpi_renombrado.style.apply(resaltar_demoras_renombrado, axis=1).format("{:.0f}", na_rep="-", subset=cols_numericas_formato)
                 st.dataframe(df_estilizado, use_container_width=True, hide_index=True, height=400)
             else:
                 st.warning("Selecciona otro mes o KPI. No hay datos para mostrar en la matriz.")
