@@ -790,9 +790,9 @@ try:
             y_fact = df["Fecha de Facturacion"].dt.year.dropna().unique() if 'Fecha de Facturacion' in df.columns else []
             y_pat = df["Fecha de Patentamiento"].dt.year.dropna().unique() if 'Fecha de Patentamiento' in df.columns else []
             años_crudos = list(set(y_fact) | set(y_pat))
-            años_limpios = sorted([int(a) for a in años_crudos if pd.notna(a)], reverse=True)
+            años_limpios_graf = sorted([int(a) for a in años_crudos if pd.notna(a)], reverse=True)
             
-            año_sel_graf = g_col1.selectbox("Año (Gráfico):", años_limpios if años_limpios else [datetime.now().year], key="sel_año_graf")
+            año_sel_graf = g_col1.selectbox("Año (Gráfico):", años_limpios_graf if años_limpios_graf else [datetime.now().year], key="sel_año_graf")
             tipo_g = g_col2.pills("Evolución Mensual de:", ["Facturación", "Patentamiento"], default="Facturación", key="pill_tipo_graf")
 
             col_f_graf = "Fecha de Facturacion" if tipo_g == "Facturación" else "Fecha de Patentamiento"
@@ -820,22 +820,26 @@ try:
         # 2. PANEL DE CONTROL DE GERENCIA (FILTROS GLOBALES)
         st.write("### 🎯 Panel de Control de Tiempos (Promedios Mensuales)")
         
+        # Extraer años válidos basados en la fecha de entrega
+        y_entrega = df["Fecha de confirmacion de entrega"].dt.year.dropna().unique() if "Fecha de confirmacion de entrega" in df.columns else []
+        años_limpios_entrega = sorted([int(a) for a in y_entrega if pd.notna(a)], reverse=True)
+
         # Filtro de canales de venta (dinámico)
         canales_disponibles = sorted(df["Canal de Venta"].dropna().astype(str).unique()) if "Canal de Venta" in df.columns else []
 
         col_filtro_y, col_filtro_m, col_filtro_c = st.columns([1, 1, 2])
-        año_panel = col_filtro_y.selectbox("📅 Seleccione Año:", ["Todos"] + años_limpios, key="año_panel")
-        mes_panel = col_filtro_m.selectbox("📅 Seleccione Mes (Facturación):", ["Todos"] + list(MESES_ESP.values()), key="mes_panel")
+        año_panel = col_filtro_y.selectbox("📅 Seleccione Año:", ["Todos"] + años_limpios_entrega, key="año_panel")
+        mes_panel = col_filtro_m.selectbox("📅 Seleccione Mes (Entrega):", ["Todos"] + list(MESES_ESP.values()), key="mes_panel")
         canal_panel = col_filtro_c.multiselect("📊 Seleccione Canal de Venta:", options=canales_disponibles, placeholder="Todos los canales...", key="canal_panel")
 
         df_t = df.copy()
         
-        if "Fecha de Facturacion" in df_t.columns:
+        if "Fecha de confirmacion de entrega" in df_t.columns:
             if año_panel != "Todos":
-                df_t = df_t[df_t["Fecha de Facturacion"].dt.year == int(año_panel)]
+                df_t = df_t[df_t["Fecha de confirmacion de entrega"].dt.year == int(año_panel)]
             if mes_panel != "Todos":
                 mes_num_reves = {v: k for k, v in MESES_ESP.items()}
-                df_t = df_t[df_t["Fecha de Facturacion"].dt.month == mes_num_reves[mes_panel]]
+                df_t = df_t[df_t["Fecha de confirmacion de entrega"].dt.month == mes_num_reves[mes_panel]]
                 
         if "Canal de Venta" in df_t.columns and len(canal_panel) > 0:
             df_t = df_t[df_t["Canal de Venta"].isin(canal_panel)]
