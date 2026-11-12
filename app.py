@@ -1006,7 +1006,7 @@ try:
                 df_kpi = df_kpi.sort_values(by=col_kpi, ascending=False)
 
             cols_mostrar = [
-                "Canal de Venta", "Cliente", "Marca", "Chasis", "Auditoría Carga Legajo",
+                "Canal de Venta", "Vendedor", "Cliente", "Marca", "Chasis", "Auditoría Carga Legajo",
                 "Días Legajo", "Días Inscripción", "Días Papeles", "Lead Time Gestoría", "Días USI"
             ]
             cols_ok = [c for c in cols_mostrar if c in df_kpi.columns]
@@ -1015,6 +1015,7 @@ try:
                 # Renombramos para la matriz
                 mapeo_columnas_tabla = {c_name: c_data["label"] for c_name, c_data in SLA_CONFIG.items()}
                 mapeo_columnas_tabla["Auditoría Carga Legajo"] = "Estado de Carga"
+                mapeo_columnas_tabla["Vendedor"] = "Asesor"
                 df_kpi_renombrado = df_kpi[cols_ok].rename(columns=mapeo_columnas_tabla)
                 
                 # Función de estilo ajustada
