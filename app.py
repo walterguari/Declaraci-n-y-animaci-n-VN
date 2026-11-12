@@ -820,17 +820,25 @@ try:
         # 2. PANEL DE CONTROL DE GERENCIA (FILTROS GLOBALES)
         st.write("### 🎯 Panel de Control de Tiempos (Promedios Mensuales)")
         
-        col_filtro_y, col_filtro_m, _ = st.columns([1, 1, 2])
+        # Filtro de canales de venta (dinámico)
+        canales_disponibles = sorted(df["Canal de Venta"].dropna().astype(str).unique()) if "Canal de Venta" in df.columns else []
+
+        col_filtro_y, col_filtro_m, col_filtro_c = st.columns([1, 1, 2])
         año_panel = col_filtro_y.selectbox("📅 Seleccione Año:", ["Todos"] + años_limpios, key="año_panel")
         mes_panel = col_filtro_m.selectbox("📅 Seleccione Mes (Facturación):", ["Todos"] + list(MESES_ESP.values()), key="mes_panel")
+        canal_panel = col_filtro_c.multiselect("📊 Seleccione Canal de Venta:", options=canales_disponibles, placeholder="Todos los canales...", key="canal_panel")
 
         df_t = df.copy()
+        
         if "Fecha de Facturacion" in df_t.columns:
             if año_panel != "Todos":
                 df_t = df_t[df_t["Fecha de Facturacion"].dt.year == int(año_panel)]
             if mes_panel != "Todos":
                 mes_num_reves = {v: k for k, v in MESES_ESP.items()}
                 df_t = df_t[df_t["Fecha de Facturacion"].dt.month == mes_num_reves[mes_panel]]
+                
+        if "Canal de Venta" in df_t.columns and len(canal_panel) > 0:
+            df_t = df_t[df_t["Canal de Venta"].isin(canal_panel)]
 
         # 3. LÓGICA DE SLAs Y CÁLCULO DE DÍAS HÁBILES (CON NUEVOS NOMBRES Y DESCRIPCIONES)
         SLA_CONFIG = {
@@ -906,7 +914,7 @@ try:
             df_t["Lead Time Gestoría"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha Disponibilidad Papeles")), axis=1)
             df_t["Días USI"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha Disponibilidad Papeles"), r.get("Fecha de confirmacion de entrega")), axis=1)
 
-            # 3. BOTONES INTERACTIVOS (PILLS) CON TEXTO EMERGENTE (TOOLTIP) GLOBAL
+            # 4. BOTONES INTERACTIVOS (PILLS) CON TEXTO EMERGENTE (TOOLTIP) GLOBAL
             st.caption("💡 Haz clic en un botón para auditar el KPI, ver el % de cumplimiento y filtrar la matriz de abajo.")
             
             opciones_pills = []
@@ -934,7 +942,7 @@ try:
 
             st.divider()
 
-            # 4. DASHBOARD GERENCIAL (GRÁFICOS)
+            # 5. DASHBOARD GERENCIAL (GRÁFICOS)
             st.write(f"#### Análisis Detallado: **{SLA_CONFIG[col_kpi]['label']}** (Objetivo: {sla_actual} días)")
             
             df_kpi = df_t[df_t[col_kpi].notna()].copy()
@@ -987,14 +995,14 @@ try:
             else:
                 st.info("No hay registros suficientes para graficar este KPI en el período seleccionado.")
 
-            # 5. TABLA DE AUDITORÍA (FILTRADA Y ORDENADA)
+            # 6. TABLA DE AUDITORÍA (FILTRADA Y ORDENADA)
             st.write("### 📋 Matriz de Auditoría Operativa (Rojo = SLA Incumplido)")
 
             if not df_kpi.empty:
                 df_kpi = df_kpi.sort_values(by=col_kpi, ascending=False)
 
             cols_mostrar = [
-                "Cliente", "Marca", "Chasis", "Auditoría Carga Legajo",
+                "Canal de Venta", "Cliente", "Marca", "Chasis", "Auditoría Carga Legajo",
                 "Días Legajo", "Días Inscripción", "Días Papeles", "Lead Time Gestoría", "Días USI"
             ]
             cols_ok = [c for c in cols_mostrar if c in df_kpi.columns]
