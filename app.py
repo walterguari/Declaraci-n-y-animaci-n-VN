@@ -781,50 +781,13 @@ try:
     with tab_tiempos:
         st.header("⏱️ Análisis de Tiempos")
         
-        v1, v2 = st.columns(2)
-        v1.metric("Cantidad de Facturaciones", f"{df['Fecha de Facturacion'].notna().sum()} Unid." if 'Fecha de Facturacion' in df.columns else "0 Unid.")
-        v2.metric("Cantidad de Patentamientos", f"{df['Fecha de Patentamiento'].notna().sum()} Unid." if 'Fecha de Patentamiento' in df.columns else "0 Unid.")
-
-        st.divider()
-        
-        # 1. EXPANDER PARA GRÁFICO ORIGINAL
-        with st.expander("📊 Evolución Mensual e Interactividad (Clic para expandir)"):
-            st.info("💡 Hacé clic en una barra para auditar ese mes.")
-            
-            g_col1, g_col2 = st.columns(2)
-            
-            y_fact = df["Fecha de Facturacion"].dt.year.dropna().unique() if 'Fecha de Facturacion' in df.columns else []
-            y_pat = df["Fecha de Patentamiento"].dt.year.dropna().unique() if 'Fecha de Patentamiento' in df.columns else []
-            años_crudos = list(set(y_fact) | set(y_pat))
-            años_limpios = sorted([int(a) for a in años_crudos if pd.notna(a)], reverse=True)
-            
-            año_sel_graf = g_col1.selectbox("Año (Gráfico):", años_limpios if años_limpios else [datetime.now().year], key="sel_año_graf")
-            tipo_g = g_col2.pills("Evolución Mensual de:", ["Facturación", "Patentamiento"], default="Facturación", key="pill_tipo_graf")
-
-            col_f_graf = "Fecha de Facturacion" if tipo_g == "Facturación" else "Fecha de Patentamiento"
-            
-            if col_f_graf in df.columns and not df.empty:
-                df_g = df[df[col_f_graf].dt.year == año_sel_graf].copy()
-                if not df_g.empty:
-                    df_g["Mes_Num"] = df_g[col_f_graf].dt.month
-                    df_g["Mes_Nom"] = df_g["Mes_Num"].map({
-                        1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
-                        7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
-                    })
-                    resumen = df_g.groupby(["Mes_Num", "Mes_Nom"]).size().reset_index(name="Cant")
-                    
-                    fig_v = px.bar(
-                        resumen.sort_values("Mes_Num"), x="Mes_Nom", y="Cant", text_auto=True, 
-                        title=f"Volumen de {tipo_g} - {año_sel_graf}", 
-                        color_discrete_sequence=['#3498db' if tipo_g == "Facturación" else '#2ecc71'],
-                        template="plotly_white", height=300
-                    )
-                    st.plotly_chart(fig_v, use_container_width=True)
-
-        st.divider()
-
-        # 2. PANEL DE CONTROL DE GERENCIA (FILTROS GLOBALES)
+        # 1. PANEL DE CONTROL DE GERENCIA (FILTROS GLOBALES)
         st.write("### 🎯 Panel de Control de Tiempos (Promedios Mensuales)")
+        
+        y_fact = df["Fecha de Facturacion"].dt.year.dropna().unique() if 'Fecha de Facturacion' in df.columns else []
+        y_pat = df["Fecha de Patentamiento"].dt.year.dropna().unique() if 'Fecha de Patentamiento' in df.columns else []
+        años_crudos = list(set(y_fact) | set(y_pat))
+        años_limpios = sorted([int(a) for a in años_crudos if pd.notna(a)], reverse=True)
         
         col_filtro_y, col_filtro_m, _ = st.columns([1, 1, 2])
         año_panel = col_filtro_y.selectbox("📅 Seleccione Año:", ["Todos"] + años_limpios, key="año_panel")
@@ -838,7 +801,7 @@ try:
                 mes_num_reves = {v: k for k, v in MESES_ESP.items()}
                 df_t = df_t[df_t["Fecha de Facturacion"].dt.month == mes_num_reves[mes_panel]]
 
-        # 3. LÓGICA DE SLAs Y CÁLCULO DE DÍAS HÁBILES
+        # 2. LÓGICA DE SLAs Y CÁLCULO DE DÍAS HÁBILES (CON NUEVOS NOMBRES Y DESCRIPCIONES)
         SLA_CONFIG = {
             "Días Legajo": {
                 "sla": 2, 
@@ -912,7 +875,7 @@ try:
             df_t["Lead Time Gestoría"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha Disponibilidad Papeles")), axis=1)
             df_t["Días USI"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha Disponibilidad Papeles"), r.get("Fecha de confirmacion de entrega")), axis=1)
 
-            # 4. BOTONES INTERACTIVOS (PILLS)
+            # 3. BOTONES INTERACTIVOS (PILLS) CON TEXTO EMERGENTE (TOOLTIP) GLOBAL
             st.caption("💡 Haz clic en un botón para auditar el KPI, ver el % de cumplimiento y filtrar la matriz de abajo.")
             
             opciones_pills = []
@@ -927,6 +890,7 @@ try:
                 opciones_pills.append(label_completo)
                 mapa_pills_a_columna[label_completo] = col
 
+            # Tooltip general que aparece al acercar el mouse al símbolo de pregunta (?) del widget
             texto_ayuda_tooltip = "Definiciones de Tramos:\n\n" + "\n\n".join([f"• {v['label']}: {v['desc']}" for v in SLA_CONFIG.values()])
             
             kpi_seleccionado_label = st.pills("Selecciona un Tramo a Analizar:", options=opciones_pills, default=opciones_pills[-1], help=texto_ayuda_tooltip)
@@ -934,11 +898,12 @@ try:
             sla_actual = SLA_CONFIG[col_kpi]["sla"]
             desc_actual = SLA_CONFIG[col_kpi]["desc"]
 
+            # Mensaje dinámico inferior (reacciona al instante indicando qué calcula el botón seleccionado)
             st.info(f"ℹ️ **¿Qué calcula este tramo?** {desc_actual}")
 
             st.divider()
 
-            # 5. DASHBOARD GERENCIAL (GRÁFICOS)
+            # 4. DASHBOARD GERENCIAL (GRÁFICOS)
             st.write(f"#### Análisis Detallado: **{SLA_CONFIG[col_kpi]['label']}** (Objetivo: {sla_actual} días)")
             
             df_kpi = df_t[df_t[col_kpi].notna()].copy()
@@ -991,7 +956,7 @@ try:
             else:
                 st.info("No hay registros suficientes para graficar este KPI en el período seleccionado.")
 
-            # 6. TABLA DE AUDITORÍA (FILTRADA Y ORDENADA)
+            # 5. TABLA DE AUDITORÍA (FILTRADA Y ORDENADA)
             st.write("### 📋 Matriz de Auditoría Operativa (Rojo = SLA Incumplido)")
 
             if not df_kpi.empty:
