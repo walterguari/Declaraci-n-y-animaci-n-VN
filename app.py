@@ -142,7 +142,7 @@ try:
             df_input["Marca_Graf"] = np.where(marca_limpia.str.contains("PEUGEOT", na=False), "PEUGEOT",
                                      np.where(marca_limpia.str.contains("CITRO", na=False), "CITROËN", "OTRA"))
             return df_input
-
+            
         MAPA_COLORES_MARCA = {
             "PEUGEOT": "#1e3d59",
             "CITROËN": "#ff6e40",
@@ -413,7 +413,7 @@ try:
         st.dataframe(df_mostrar_ex[cols_ok_ex], use_container_width=True, hide_index=True, height=450)        
 
     # ---------------------------------------------------------
-    # PESTAÑA 2: ANIMACIÓN DE CLIENTES DE VENTA (Intacta con nuevo nombre)
+    # PESTAÑA 2: ANIMACIÓN DE CLIENTES DE VENTA (Intacta)
     # ---------------------------------------------------------
     with tab_animacion_v:
         st.header("📣 Animación de clientes VN")
@@ -824,16 +824,25 @@ try:
         y_entrega = df["Fecha de confirmacion de entrega"].dt.year.dropna().unique() if "Fecha de confirmacion de entrega" in df.columns else []
         años_limpios_entrega = sorted([int(a) for a in y_entrega if pd.notna(a)], reverse=True)
 
-        # Filtro de canales de venta (dinámico)
+        # Filtros de Marca y Canal (dinámicos)
+        marcas_disponibles = sorted(df["Marca"].dropna().astype(str).unique()) if "Marca" in df.columns else []
         canales_disponibles = sorted(df["Canal de Venta"].dropna().astype(str).unique()) if "Canal de Venta" in df.columns else []
 
-        col_filtro_y, col_filtro_m, col_filtro_c = st.columns([1, 1, 2])
-        año_panel = col_filtro_y.selectbox("📅 Seleccione Año:", ["Todos"] + años_limpios_entrega, key="año_panel")
-        mes_panel = col_filtro_m.selectbox("📅 Seleccione Mes (Entrega):", ["Todos"] + list(MESES_ESP.values()), key="mes_panel")
-        canal_panel = col_filtro_c.multiselect("📊 Seleccione Canal de Venta:", options=canales_disponibles, placeholder="Todos los canales...", key="canal_panel")
+        # Ajustamos a 4 columnas para que la Marca figure primera
+        col_filtro_mar, col_filtro_y, col_filtro_m, col_filtro_c = st.columns([1.5, 1, 1, 2])
+        
+        marca_panel = col_filtro_mar.multiselect("🏷️ Seleccione Marca:", options=marcas_disponibles, placeholder="Todas las marcas...", key="marca_panel_tiempos")
+        año_panel = col_filtro_y.selectbox("📅 Seleccione Año:", ["Todos"] + años_limpios_entrega, key="año_panel_tiempos")
+        mes_panel = col_filtro_m.selectbox("📅 Seleccione Mes (Entrega):", ["Todos"] + list(MESES_ESP.values()), key="mes_panel_tiempos")
+        canal_panel = col_filtro_c.multiselect("📊 Seleccione Canal de Venta:", options=canales_disponibles, placeholder="Todos los canales...", key="canal_panel_tiempos")
 
         df_t = df.copy()
         
+        # Aplicar Filtro de Marca
+        if "Marca" in df_t.columns and len(marca_panel) > 0:
+            df_t = df_t[df_t["Marca"].isin(marca_panel)]
+
+        # Aplicar Filtro de Año y Mes
         if "Fecha de confirmacion de entrega" in df_t.columns:
             if año_panel != "Todos":
                 df_t = df_t[df_t["Fecha de confirmacion de entrega"].dt.year == int(año_panel)]
@@ -841,6 +850,7 @@ try:
                 mes_num_reves = {v: k for k, v in MESES_ESP.items()}
                 df_t = df_t[df_t["Fecha de confirmacion de entrega"].dt.month == mes_num_reves[mes_panel]]
                 
+        # Aplicar Filtro de Canal de Venta
         if "Canal de Venta" in df_t.columns and len(canal_panel) > 0:
             df_t = df_t[df_t["Canal de Venta"].isin(canal_panel)]
 
