@@ -142,7 +142,7 @@ try:
             df_input["Marca_Graf"] = np.where(marca_limpia.str.contains("PEUGEOT", na=False), "PEUGEOT",
                                      np.where(marca_limpia.str.contains("CITRO", na=False), "CITROËN", "OTRA"))
             return df_input
-            
+
         MAPA_COLORES_MARCA = {
             "PEUGEOT": "#1e3d59",
             "CITROËN": "#ff6e40",
@@ -191,7 +191,6 @@ try:
                 res_df = res_df.sort_values("Mes_Num")
             return res_df
 
-        # 1. SECCIÓN DESPLEGABLE DE GRÁFICOS (EXPANDER)
         with st.expander("📊 Evolución Mensual Operativa (Patentamientos y Entregas)", expanded=True):
             
             y_pat = pd.to_datetime(df_base["Fecha de Patentamiento"].astype(str).str.strip(), dayfirst=True, format="mixed", errors='coerce').dt.year.dropna()
@@ -265,7 +264,6 @@ try:
                 else:
                     st.info(f"No hay entregas cargadas para el año {anio_sel_g}.")
 
-        # 2. MÉTRICAS CLAVE (KPIs)
         st.divider()
         pat_v = df_ho[df_ho["Fecha de Patentamiento"].notna()]
         
@@ -285,7 +283,6 @@ try:
 
         st.divider()
 
-        # 3. SEGUIMIENTO OPERATIVO
         st.write("### 📌 Seguimiento Operativo: Pendientes de Hand Over")
         
         col_entrega_ho = "Fecha de confirmacion de entrega"
@@ -386,7 +383,6 @@ try:
             
         st.divider()
 
-        # 4. TABLA DETALLADA
         st.write("### 📋 Detalle y Gestión de Unidades")
         
         c_aviso, c_boton, c_busq = st.columns([3, 1, 2])
@@ -828,7 +824,6 @@ try:
         marcas_disponibles = sorted(df["Marca"].dropna().astype(str).unique()) if "Marca" in df.columns else []
         canales_disponibles = sorted(df["Canal de Venta"].dropna().astype(str).unique()) if "Canal de Venta" in df.columns else []
 
-        # Ajustamos a 4 columnas para que la Marca figure primera
         col_filtro_mar, col_filtro_y, col_filtro_m, col_filtro_c = st.columns([1.5, 1, 1, 2])
         
         marca_panel = col_filtro_mar.multiselect("🏷️ Seleccione Marca:", options=marcas_disponibles, placeholder="Todas las marcas...", key="marca_panel_tiempos")
@@ -854,7 +849,7 @@ try:
         if "Canal de Venta" in df_t.columns and len(canal_panel) > 0:
             df_t = df_t[df_t["Canal de Venta"].isin(canal_panel)]
 
-        # 3. LÓGICA DE SLAs Y CÁLCULO DE DÍAS HÁBILES (CON NUEVOS NOMBRES Y DESCRIPCIONES)
+        # 3. LÓGICA DE SLAs Y CÁLCULO DE DÍAS HÁBILES (CON NUEVO "LEAD TIME TOTAL")
         SLA_CONFIG = {
             "Días Legajo": {
                 "sla": 2, 
@@ -885,6 +880,12 @@ try:
                 "icon": "🚗", 
                 "label": "Sector USI",
                 "desc": "Calcula el tiempo desde que los papeles están disponibles hasta la confirmación de entrega al cliente."
+            },
+            "Días Totales": {
+                "sla": 7, 
+                "icon": "🏁", 
+                "label": "Lead Time Total",
+                "desc": "Calcula el tiempo total desde el Pedido de Preparación hasta la Confirmación de Entrega (Suma de los SLAs = 7 días)."
             }
         }
 
@@ -927,6 +928,9 @@ try:
             df_t["Días Papeles"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Patentamiento"), r.get("Fecha Disponibilidad Papeles")), axis=1)
             df_t["Lead Time Gestoría"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha Disponibilidad Papeles")), axis=1)
             df_t["Días USI"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha Disponibilidad Papeles"), r.get("Fecha de confirmacion de entrega")), axis=1)
+            
+            # NUEVA MÉTRICA: Lead Time Total
+            df_t["Días Totales"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Pedido de Preparación"), r.get("Fecha de confirmacion de entrega")), axis=1)
 
             # 4. BOTONES INTERACTIVOS (PILLS) CON TEXTO EMERGENTE (TOOLTIP) GLOBAL
             st.caption("💡 Haz clic en un botón para auditar el KPI, ver el % de cumplimiento y filtrar la matriz de abajo.")
@@ -947,7 +951,7 @@ try:
             texto_ayuda_tooltip = "Definiciones de Tramos:\n\n" + "\n\n".join([f"• {v['label']}: {v['desc']}" for v in SLA_CONFIG.values()])
             
             kpi_seleccionado_label = st.pills("Selecciona un Tramo a Analizar:", options=opciones_pills, default=opciones_pills[-1], help=texto_ayuda_tooltip)
-            col_kpi = mapa_pills_a_columna.get(kpi_seleccionado_label, "Días USI")
+            col_kpi = mapa_pills_a_columna.get(kpi_seleccionado_label, "Días Totales")
             sla_actual = SLA_CONFIG[col_kpi]["sla"]
             desc_actual = SLA_CONFIG[col_kpi]["desc"]
 
@@ -1017,7 +1021,7 @@ try:
 
             cols_mostrar = [
                 "Canal de Venta", "Vendedor", "Cliente", "Marca", "Chasis", "Auditoría Carga Legajo",
-                "Días Legajo", "Días Inscripción", "Días Papeles", "Lead Time Gestoría", "Días USI"
+                "Días Legajo", "Días Inscripción", "Días Papeles", "Lead Time Gestoría", "Días USI", "Días Totales"
             ]
             cols_ok = [c for c in cols_mostrar if c in df_kpi.columns]
 
@@ -1038,10 +1042,19 @@ try:
                         if col_renombrada in row.index:
                             idx = row.index.get_loc(col_renombrada)
                             val = row[col_renombrada]
-                            if pd.notna(val) and val > c_data["sla"]:
-                                estilos[idx] = 'background-color: #ffcccc; color: #990000; font-weight: bold;'
-                            elif pd.notna(val) and val <= c_data["sla"]:
-                                estilos[idx] = 'background-color: #ccffcc; color: #006600;'
+                            
+                            # Alarma especial para el "Lead Time Total" (Color Rojo Fuerte)
+                            if col_renombrada == "Lead Time Total":
+                                if pd.notna(val) and val > c_data["sla"]:
+                                    estilos[idx] = 'background-color: #e74c3c; color: white; font-weight: bold;'
+                                elif pd.notna(val) and val <= c_data["sla"]:
+                                    estilos[idx] = 'background-color: #ccffcc; color: #006600;'
+                            # Alarma normal para los demás subtramos (Color Rojo Claro)
+                            else:
+                                if pd.notna(val) and val > c_data["sla"]:
+                                    estilos[idx] = 'background-color: #ffcccc; color: #990000; font-weight: bold;'
+                                elif pd.notna(val) and val <= c_data["sla"]:
+                                    estilos[idx] = 'background-color: #ccffcc; color: #006600;'
                     
                     # Pintamos la columna de Auditoría de Carga (Atrasos en naranja)
                     if "Estado de Carga" in row.index:
