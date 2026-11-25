@@ -569,13 +569,12 @@ try:
                 st.caption(f"⚠️ Nota: Las siguientes columnas solicitadas no fueron encontradas con ese nombre exacto en el archivo original: {', '.join(cols_faltantes)}")
 
     # ---------------------------------------------------------
-    # PESTAÑA 3: ANIMACIÓN DE CLIENTES PVT
+    # PESTAÑA 3: ANIMACIÓN DE CLIENTES PVT (Intacta)
     # ---------------------------------------------------------
     with tab_animacion_pv:
         st.header("🔧 Animación de clientes PVT")
         st.write("Seguimiento y métricas de encuestas de clientes en la base PVT ROAR.")
         
-        # --- BÚSQUEDA DE COLUMNAS CLAVE ---
         posibles_cols = [c for c in df_pv.columns if "ESTADO DE LA ENCUESTA" in str(c).upper()]
         col_estado_real = None
         for col in posibles_cols:
@@ -585,7 +584,6 @@ try:
         if not col_estado_real and posibles_cols:
             col_estado_real = posibles_cols[-1]
 
-        # Buscar columna de Importación
         col_importacion = next((c for c in df_pv.columns if "IMPORTACI" in str(c).upper() and "FECHA" in str(c).upper()), None)
         if col_importacion:
             df_pv[col_importacion] = pd.to_datetime(df_pv[col_importacion].astype(str).str.strip(), dayfirst=True, format="mixed", errors="coerce")
@@ -598,12 +596,8 @@ try:
             
             st.divider()
             
-            # =========================================================
-            # ESTRUCTURA HORIZONTAL Y FILTROS EN CASCADA
-            # =========================================================
             c_anio, c_filtro, c_marcas, c_t, c_asesores = st.columns([1, 1.5, 2.2, 1, 3.8])
             
-            # 1. Filtro de Año
             with c_anio:
                 if col_importacion:
                     anios_disp = sorted(df_pv[col_importacion].dt.year.dropna().astype(int).unique(), reverse=True)
@@ -612,18 +606,15 @@ try:
                     anio_sel = "Todos"
                     st.selectbox("📅 Año:", ["Todos"], disabled=True)
 
-            # Aplicar Filtro de Año ANTES de calcular el TR
             df_pv_anio = df_pv.copy()
             if anio_sel != "Todos" and col_importacion:
                 df_pv_anio = df_pv_anio[df_pv_anio[col_importacion].dt.year == int(anio_sel)]
 
-            # 2. Filtro de Estado
             with c_filtro:
                 opciones_filtro = ["Todos"] + estados_limpios
                 idx_default = next((i for i, opc in enumerate(opciones_filtro) if opc.strip().lower() == "en espera"), 0)
                 estado_seleccionado = st.selectbox("📌 Estado:", opciones_filtro, index=idx_default)
             
-            # --- CÁLCULO DE TASA DE RESPUESTA (TR) GLOBAL POR ASESOR ---
             col_asesor = "Nombre del asesor"
             dict_tr_asesores = {}
             
@@ -640,12 +631,10 @@ try:
                     
                     dict_tr_asesores[str(asesor).strip()] = f"{tr:.1f}%"
 
-            # Aplicar Filtro de Estado para la vista
             df_pv_filtrado = df_pv_anio.copy()
             if estado_seleccionado != "Todos":
                 df_pv_filtrado = df_pv_filtrado[df_pv_filtrado[col_estado_real].astype(str) == estado_seleccionado]
             
-            # 3. Filtro Interactivo de Marcas
             with c_marcas:
                 if "Marca" in df_pv_filtrado.columns:
                     df_pv_filtrado["Marca_Norm"] = df_pv_filtrado["Marca"].astype(str).str.upper()
@@ -673,11 +662,9 @@ try:
                 else:
                     st.warning("⚠️ Sin columna Marca")
             
-            # 4. Total Filtrado
             with c_t:
                 st.metric("📊 Total", len(df_pv_filtrado))
                 
-            # 5. Botones de Asesores
             with c_asesores:
                 if col_asesor in df_pv_filtrado.columns:
                     conteo_asesores = df_pv_filtrado[col_asesor].value_counts()
@@ -704,9 +691,6 @@ try:
 
             st.divider()
             
-            # =========================================================
-            # TABLA DE VISUALIZACIÓN
-            # =========================================================
             c_tit_tabla, c_busq_tabla = st.columns([3, 1])
             c_tit_tabla.write("### 📋 Detalle de Clientes")
             busq_pv = c_busq_tabla.text_input("🔍 Búsqueda rápida:", placeholder="Nombre, correo...", key="busq_pv_unica")
@@ -772,14 +756,19 @@ try:
                 st.warning("⚠️ No se detectó ninguna de las columnas solicitadas.")
                 
     # ---------------------------------------------------------
-    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (RENOVADA PARA GERENCIA + AUDITORÍA DE CARGA)
+    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (SEPARADO EN TRADICIONAL Y PDA)
     # ---------------------------------------------------------
     with tab_tiempos:
         st.header("⏱️ Análisis de Tiempos")
+
+        MESES_TIEMPOS = {
+            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
+            7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+        }
         
         # 1. EXPANDER PARA GRÁFICO ORIGINAL
         with st.expander("📊 Evolución Mensual e Interactividad (Clic para expandir)"):
-            st.info("💡 Hacé clic en una barra para auditar ese mes.")
+            st.info("💡 Visualizá la evolución mensual de volumen por Facturación o Patentamiento.")
             
             g_col1, g_col2 = st.columns(2)
             
@@ -797,10 +786,7 @@ try:
                 df_g = df[df[col_f_graf].dt.year == año_sel_graf].copy()
                 if not df_g.empty:
                     df_g["Mes_Num"] = df_g[col_f_graf].dt.month
-                    df_g["Mes_Nom"] = df_g["Mes_Num"].map({
-                        1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
-                        7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
-                    })
+                    df_g["Mes_Nom"] = df_g["Mes_Num"].map(MESES_TIEMPOS)
                     resumen = df_g.groupby(["Mes_Num", "Mes_Nom"]).size().reset_index(name="Cant")
                     
                     fig_v = px.bar(
@@ -809,87 +795,37 @@ try:
                         color_discrete_sequence=['#3498db' if tipo_g == "Facturación" else '#2ecc71'],
                         template="plotly_white", height=300
                     )
-                    st.plotly_chart(fig_v, use_container_width=True)
+                    st.plotly_chart(fig_v, use_container_width=True, key="g_evol_mensual_tiempos")
 
         st.divider()
 
-        # 2. PANEL DE CONTROL DE GERENCIA (FILTROS GLOBALES)
-        st.write("### 🎯 Panel de Control de Tiempos (Promedios Mensuales)")
+        # 2. PANEL DE CONTROL DE GERENCIA (FILTROS GLOBALES: MARCA, AÑO Y MES DE ENTREGA)
+        st.write("### 🎯 Panel de Control de Tiempos por Línea de Tiempo")
+        st.caption("Se analizan exclusivamente **Venta Tradicional (T)** y **Plan de Ahorro (PDA)**. Operaciones de Mayorista y Autopatentado quedan excluidas.")
         
-        # Extraer años válidos basados en la fecha de entrega
         y_entrega = df["Fecha de confirmacion de entrega"].dt.year.dropna().unique() if "Fecha de confirmacion de entrega" in df.columns else []
         años_limpios_entrega = sorted([int(a) for a in y_entrega if pd.notna(a)], reverse=True)
-
-        # Filtros de Marca y Canal (dinámicos)
         marcas_disponibles = sorted(df["Marca"].dropna().astype(str).unique()) if "Marca" in df.columns else []
-        canales_disponibles = sorted(df["Canal de Venta"].dropna().astype(str).unique()) if "Canal de Venta" in df.columns else []
 
-        col_filtro_mar, col_filtro_y, col_filtro_m, col_filtro_c = st.columns([1.5, 1, 1, 2])
+        col_filtro_mar, col_filtro_y, col_filtro_m = st.columns([2, 1, 1.5])
         
         marca_panel = col_filtro_mar.multiselect("🏷️ Seleccione Marca:", options=marcas_disponibles, placeholder="Todas las marcas...", key="marca_panel_tiempos")
-        año_panel = col_filtro_y.selectbox("📅 Seleccione Año:", ["Todos"] + años_limpios_entrega, key="año_panel_tiempos")
-        mes_panel = col_filtro_m.selectbox("📅 Seleccione Mes (Entrega):", ["Todos"] + list(MESES_ESP.values()), key="mes_panel_tiempos")
-        canal_panel = col_filtro_c.multiselect("📊 Seleccione Canal de Venta:", options=canales_disponibles, placeholder="Todos los canales...", key="canal_panel_tiempos")
+        año_panel = col_filtro_y.selectbox("📅 Seleccione Año (Entrega):", ["Todos"] + años_limpios_entrega, key="año_panel_tiempos")
+        mes_panel = col_filtro_m.selectbox("📅 Seleccione Mes (Entrega):", ["Todos"] + list(MESES_TIEMPOS.values()), key="mes_panel_tiempos")
 
-        df_t = df.copy()
+        df_t_base = df.copy()
         
-        # Aplicar Filtro de Marca
-        if "Marca" in df_t.columns and len(marca_panel) > 0:
-            df_t = df_t[df_t["Marca"].isin(marca_panel)]
+        if "Marca" in df_t_base.columns and len(marca_panel) > 0:
+            df_t_base = df_t_base[df_t_base["Marca"].isin(marca_panel)]
 
-        # Aplicar Filtro de Año y Mes
-        if "Fecha de confirmacion de entrega" in df_t.columns:
+        if "Fecha de confirmacion de entrega" in df_t_base.columns:
             if año_panel != "Todos":
-                df_t = df_t[df_t["Fecha de confirmacion de entrega"].dt.year == int(año_panel)]
+                df_t_base = df_t_base[df_t_base["Fecha de confirmacion de entrega"].dt.year == int(año_panel)]
             if mes_panel != "Todos":
-                mes_num_reves = {v: k for k, v in MESES_ESP.items()}
-                df_t = df_t[df_t["Fecha de confirmacion de entrega"].dt.month == mes_num_reves[mes_panel]]
-                
-        # Aplicar Filtro de Canal de Venta
-        if "Canal de Venta" in df_t.columns and len(canal_panel) > 0:
-            df_t = df_t[df_t["Canal de Venta"].isin(canal_panel)]
+                mes_num_reves = {v: k for k, v in MESES_TIEMPOS.items()}
+                df_t_base = df_t_base[df_t_base["Fecha de confirmacion de entrega"].dt.month == mes_num_reves[mes_panel]]
 
-        # 3. LÓGICA DE SLAs Y CÁLCULO DE DÍAS HÁBILES (CON NUEVO "LEAD TIME TOTAL")
-        SLA_CONFIG = {
-            "Días Legajo": {
-                "sla": 2, 
-                "icon": "📁", 
-                "label": "Gestión administrativa",
-                "desc": "Calcula los días hábiles entre el Pedido de Preparación y el Retiro de Documentación. Si se cargó tarde en el sistema (fecha de pedido posterior al retiro), mide los días de atraso de carga."
-            },
-            "Días Inscripción": {
-                "sla": 1, 
-                "icon": "📝", 
-                "label": "Gestoría: Tiempo de Inscripción",
-                "desc": "Calcula el tiempo desde que el Gestor retira la documentación hasta el Patentamiento."
-            },
-            "Días Papeles": {
-                "sla": 2, 
-                "icon": "📄", 
-                "label": "Gestoria: Disponibilidad de papeles",
-                "desc": "Calcula el tiempo desde el Patentamiento hasta que los papeles están disponibles en sucursal."
-            },
-            "Lead Time Gestoría": {
-                "sla": 3, 
-                "icon": "📊", 
-                "label": "Total Gestoría",
-                "desc": "Calcula el tiempo total externo, desde que el Gestor retira la documentación hasta la disponibilidad de papeles."
-            },
-            "Días USI": {
-                "sla": 2, 
-                "icon": "🚗", 
-                "label": "Sector USI",
-                "desc": "Calcula el tiempo desde que los papeles están disponibles hasta la confirmación de entrega al cliente."
-            },
-            "Días Totales": {
-                "sla": 7, 
-                "icon": "🏁", 
-                "label": "Lead Time Total",
-                "desc": "Calcula el tiempo total desde el Pedido de Preparación hasta la Confirmación de Entrega (Suma de los SLAs = 7 días)."
-            }
-        }
-
-        # Función estándar para medir diferencias lógicas
+        # 3. FUNCIONES DE CÁLCULO DE DÍAS HÁBILES (LUNES A VIERNES)
         def calcular_dias_habiles(start, end):
             if pd.isna(start) or pd.isna(end): return None
             try:
@@ -898,7 +834,6 @@ try:
                 return max(0, len(pd.bdate_range(s, e)) - 1)
             except: return None
 
-        # FUNCIÓN ESPECIAL BIDIRECCIONAL: Para auditar atrasos de carga en "Gestión Administrativa"
         def calcular_dias_legajo(start, end):
             if pd.isna(start) or pd.isna(end): return None
             try:
@@ -909,7 +844,6 @@ try:
                     return max(0, len(pd.bdate_range(e, s)) - 1) # Atraso de Carga (Fechas Invertidas)
             except: return None
 
-        # Etiquetador visual de Calidad de Carga
         def auditar_carga_administrativa(start, end):
             if pd.isna(start) or pd.isna(end): return "Sin datos"
             try:
@@ -919,27 +853,178 @@ try:
                 else: return "🚨 Carga Atrasada"
             except: return "Sin datos"
 
-        if not df_t.empty:
-            # Aplicamos función especial para el tramo administrativo y estándar para el resto
-            df_t["Días Legajo"] = df_t.apply(lambda r: calcular_dias_legajo(r.get("Fecha de Pedido de Preparación"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
-            df_t["Auditoría Carga Legajo"] = df_t.apply(lambda r: auditar_carga_administrativa(r.get("Fecha de Pedido de Preparación"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
-            
-            df_t["Días Inscripción"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha de Patentamiento")), axis=1)
-            df_t["Días Papeles"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Patentamiento"), r.get("Fecha Disponibilidad Papeles")), axis=1)
-            df_t["Lead Time Gestoría"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha Disponibilidad Papeles")), axis=1)
-            df_t["Días USI"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha Disponibilidad Papeles"), r.get("Fecha de confirmacion de entrega")), axis=1)
-            
-            # NUEVA MÉTRICA: Lead Time Total
-            df_t["Días Totales"] = df_t.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Pedido de Preparación"), r.get("Fecha de confirmacion de entrega")), axis=1)
+        # 4. CONFIGURACIONES DE LÍNEA DE TIEMPO POR CANAL
+        SLA_CONFIG_T = {
+            "T. Adm desde FF": {
+                "sla": 2,
+                "icon": "🧾",
+                "label": "Adm. desde FF (FF ➔ FPP)",
+                "desc": "Mide el tiempo desde la Fecha de Facturación (FF) hasta el Pedido de Preparación (FPP)."
+            },
+            "T. Adm desde FPP": {
+                "sla": 2,
+                "icon": "📁",
+                "label": "Adm. desde FPP (FPP ➔ FGRD)",
+                "desc": "Mide los días hábiles entre el Pedido de Preparación (FPP) y el Retiro de Documentación (FGRD). Si FPP es posterior a FGRD, mide los días de atraso de carga."
+            },
+            "T. Adm Total": {
+                "sla": 4,
+                "icon": "🗂️",
+                "label": "Total Administrativo (FF ➔ FGRD)",
+                "desc": "Mide el tiempo administrativo acumulado desde la Fecha de Facturación (FF) hasta que el Gestor retira la documentación (FGRD)."
+            },
+            "Días Inscripción": {
+                "sla": 1,
+                "icon": "📝",
+                "label": "Gestoría: Inscripción (FGRD ➔ FDP)",
+                "desc": "Mide el tiempo desde que el Gestor retira la documentación (FGRD) hasta el Patentamiento (FDP)."
+            },
+            "Días Papeles": {
+                "sla": 2,
+                "icon": "📄",
+                "label": "Gestoría: Disp. Papeles (FDP ➔ Disp.)",
+                "desc": "Mide el tiempo desde el Patentamiento (FDP) hasta la Disponibilidad de Papeles en sucursal."
+            },
+            "Lead Time Gestoría": {
+                "sla": 3,
+                "icon": "📊",
+                "label": "Total Gestoría (FGRD ➔ Disp.)",
+                "desc": "Mide el tiempo total en gestoría externa, desde el retiro de documentación (FGRD) hasta la disponibilidad de papeles."
+            },
+            "Días USI": {
+                "sla": 2,
+                "icon": "🚗",
+                "label": "Sector USI / Entrega (Disp. ➔ Entrega)",
+                "desc": "Mide el tiempo desde la Disponibilidad de Papeles hasta la Confirmación de Entrega al cliente."
+            },
+            "Lead Time Total": {
+                "sla": 9,
+                "icon": "🏁",
+                "label": "Lead Time Total (FF ➔ Entrega)",
+                "desc": "Mide el ciclo completo del canal Tradicional desde la Facturación (FF) hasta la Confirmación de Entrega (Objetivo acumulado: 9 días)."
+            }
+        }
 
-            # 4. BOTONES INTERACTIVOS (PILLS) CON TEXTO EMERGENTE (TOOLTIP) GLOBAL
-            st.caption("💡 Haz clic en un botón para auditar el KPI, ver el % de cumplimiento y filtrar la matriz de abajo.")
+        SLA_CONFIG_PDA = {
+            "T. Adm desde FPP": {
+                "sla": 2,
+                "icon": "📁",
+                "label": "Gestión Administrativa (FPP ➔ FGRD)",
+                "desc": "Mide los días hábiles entre el Pedido de Preparación (FPP) y el Retiro de Documentación (FGRD). Si FPP es posterior a FGRD, mide los días de atraso de carga."
+            },
+            "Días Inscripción": {
+                "sla": 1,
+                "icon": "📝",
+                "label": "Gestoría: Inscripción (FGRD ➔ FDP)",
+                "desc": "Mide el tiempo desde que el Gestor retira la documentación (FGRD) hasta el Patentamiento (FDP)."
+            },
+            "Días Papeles": {
+                "sla": 2,
+                "icon": "📄",
+                "label": "Gestoría: Disp. Papeles (FDP ➔ Disp.)",
+                "desc": "Mide el tiempo desde el Patentamiento (FDP) hasta la Disponibilidad de Papeles en sucursal."
+            },
+            "Lead Time Gestoría": {
+                "sla": 3,
+                "icon": "📊",
+                "label": "Total Gestoría (FGRD ➔ Disp.)",
+                "desc": "Mide el tiempo total en gestoría externa, desde el retiro de documentación (FGRD) hasta la disponibilidad de papeles."
+            },
+            "Días USI": {
+                "sla": 2,
+                "icon": "🚗",
+                "label": "Sector USI / Entrega (Disp. ➔ Entrega)",
+                "desc": "Mide el tiempo desde la Disponibilidad de Papeles hasta la Confirmación de Entrega al cliente."
+            },
+            "Lead Time Total": {
+                "sla": 7,
+                "icon": "🏁",
+                "label": "Lead Time Total (FPP ➔ Entrega)",
+                "desc": "Mide el ciclo completo de Plan de Ahorro desde el Pedido de Preparación (FPP) hasta la Confirmación de Entrega (Objetivo acumulado: 7 días)."
+            }
+        }
+
+        # 5. FUNCIÓN REUTILIZABLE PARA RENDERIZAR CADA TABLERO DE CANAL
+        def renderizar_tablero_canal(df_canal, sla_config, prefijo_key, es_tradicional):
+            if df_canal.empty:
+                st.info("No hay operaciones registradas para este canal con los filtros seleccionados.")
+                return
+
+            df_c = df_canal.copy()
+
+            # Cálculos comunes
+            df_c["T. Adm desde FPP"] = df_c.apply(lambda r: calcular_dias_legajo(r.get("Fecha de Pedido de Preparación"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
+            df_c["Auditoría Carga Legajo"] = df_c.apply(lambda r: auditar_carga_administrativa(r.get("Fecha de Pedido de Preparación"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
+            df_c["Días Inscripción"] = df_c.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha de Patentamiento")), axis=1)
+            df_c["Días Papeles"] = df_c.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Patentamiento"), r.get("Fecha Disponibilidad Papeles")), axis=1)
+            df_c["Lead Time Gestoría"] = df_c.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha Disponibilidad Papeles")), axis=1)
+            df_c["Días USI"] = df_c.apply(lambda r: calcular_dias_habiles(r.get("Fecha Disponibilidad Papeles"), r.get("Fecha de confirmacion de entrega")), axis=1)
+
+            # Cálculos diferenciales por canal
+            if es_tradicional:
+                df_c["T. Adm desde FF"] = df_c.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Facturacion"), r.get("Fecha de Pedido de Preparación")), axis=1)
+                df_c["T. Adm Total"] = df_c.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Facturacion"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
+                df_c["Lead Time Total"] = df_c.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Facturacion"), r.get("Fecha de confirmacion de entrega")), axis=1)
+                tramos_secuenciales = [
+                    ("1. Adm. FF ➔ FPP", "T. Adm desde FF", "#5dade2"),
+                    ("2. Adm. FPP ➔ FGRD", "T. Adm desde FPP", "#2e86c1"),
+                    ("3. Inscripción (FGRD ➔ FDP)", "Días Inscripción", "#f5b041"),
+                    ("4. Disp. Papeles (FDP ➔ Disp.)", "Días Papeles", "#eb984e"),
+                    ("5. Sector USI (Disp. ➔ Entrega)", "Días USI", "#e74c3c")
+                ]
+                flujo_texto = "**Línea de Tiempo Tradicional:** `FF` ➔ `FPP` ➔ `FGRD` ➔ `FDP` ➔ `Disp. Papeles` ➔ `Conf. Entrega`"
+            else:
+                df_c["Lead Time Total"] = df_c.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Pedido de Preparación"), r.get("Fecha de confirmacion de entrega")), axis=1)
+                tramos_secuenciales = [
+                    ("1. Gestión Adm. (FPP ➔ FGRD)", "T. Adm desde FPP", "#2e86c1"),
+                    ("2. Inscripción (FGRD ➔ FDP)", "Días Inscripción", "#f5b041"),
+                    ("3. Disp. Papeles (FDP ➔ Disp.)", "Días Papeles", "#eb984e"),
+                    ("4. Sector USI (Disp. ➔ Entrega)", "Días USI", "#e74c3c")
+                ]
+                flujo_texto = "**Línea de Tiempo Plan de Ahorro (PDA):** `FPP` ➔ `FGRD` ➔ `FDP` ➔ `Disp. Papeles` ➔ `Conf. Entrega`"
+
+            # --- A. BARRA VISUAL DE COMPOSICIÓN DE LA LÍNEA DE TIEMPO ---
+            st.markdown(f"{flujo_texto} &nbsp; | &nbsp; **Unidades evaluadas:** `{len(df_c)}`")
+            
+            datos_timeline = []
+            mapa_colores_tl = {}
+            for nombre_etapa, col_etapa, color_hex in tramos_secuenciales:
+                prom_val = df_c[col_etapa].mean()
+                if pd.notna(prom_val) and prom_val > 0:
+                    datos_timeline.append({
+                        "Proceso": "Promedio del Ciclo",
+                        "Etapa": nombre_etapa,
+                        "Días": round(prom_val, 1)
+                    })
+                    mapa_colores_tl[nombre_etapa] = color_hex
+
+            if datos_timeline:
+                df_tl = pd.DataFrame(datos_timeline)
+                fig_tl = px.bar(
+                    df_tl, x="Días", y="Proceso", color="Etapa", orientation="h",
+                    text="Días", color_discrete_map=mapa_colores_tl,
+                    title="🧭 Radiografía del Ciclo Promedio (Días Hábiles por Etapa)",
+                    template="plotly_white"
+                )
+                fig_tl.update_traces(texttemplate="%{text:.1f} d", textposition="inside")
+                fig_tl.update_layout(
+                    barmode="stack", height=180,
+                    margin=dict(t=40, b=10, l=10, r=10),
+                    yaxis_title="", xaxis_title="Días Hábiles Acumulados",
+                    legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5, title="")
+                )
+                st.plotly_chart(fig_tl, use_container_width=True, key=f"g_timeline_{prefijo_key}")
+
+            st.divider()
+
+            # --- B. BOTONES INTERACTIVOS (PILLS) ---
+            st.caption("💡 Hacé clic en un tramo para auditar su % de cumplimiento, comparativa por marca y ordenar la matriz inferior.")
             
             opciones_pills = []
             mapa_pills_a_columna = {}
             
-            for col, datos in SLA_CONFIG.items():
-                promedio = df_t[col].mean()
+            for col, datos in sla_config.items():
+                promedio = df_c[col].mean()
                 texto_prom = f"{promedio:.1f}d" if pd.notna(promedio) else "S/D"
                 alerta = " 🔴" if pd.notna(promedio) and promedio > datos["sla"] else ""
                 label_completo = f"{datos['icon']} {datos['label']} (Prom: {texto_prom}){alerta}"
@@ -947,27 +1032,29 @@ try:
                 opciones_pills.append(label_completo)
                 mapa_pills_a_columna[label_completo] = col
 
-            # Tooltip general que aparece al acercar el mouse al símbolo de pregunta (?) del widget
-            texto_ayuda_tooltip = "Definiciones de Tramos:\n\n" + "\n\n".join([f"• {v['label']}: {v['desc']}" for v in SLA_CONFIG.values()])
+            texto_ayuda_tooltip = "Definiciones de Tramos:\n\n" + "\n\n".join([f"• {v['label']}: {v['desc']}" for v in sla_config.values()])
             
-            kpi_seleccionado_label = st.pills("Selecciona un Tramo a Analizar:", options=opciones_pills, default=opciones_pills[-1], help=texto_ayuda_tooltip)
-            col_kpi = mapa_pills_a_columna.get(kpi_seleccionado_label, "Días Totales")
-            sla_actual = SLA_CONFIG[col_kpi]["sla"]
-            desc_actual = SLA_CONFIG[col_kpi]["desc"]
+            kpi_seleccionado_label = st.pills(
+                "Selecciona un Tramo a Analizar:",
+                options=opciones_pills,
+                default=opciones_pills[-1],
+                help=texto_ayuda_tooltip,
+                key=f"pills_kpi_{prefijo_key}"
+            )
+            col_kpi = mapa_pills_a_columna.get(kpi_seleccionado_label, "Lead Time Total")
+            sla_actual = sla_config[col_kpi]["sla"]
+            desc_actual = sla_config[col_kpi]["desc"]
 
-            # Mensaje dinámico inferior (reacciona al instante indicando qué calcula el botón seleccionado)
             st.info(f"ℹ️ **¿Qué calcula este tramo?** {desc_actual}")
 
-            st.divider()
-
-            # 5. DASHBOARD GERENCIAL (GRÁFICOS)
-            st.write(f"#### Análisis Detallado: **{SLA_CONFIG[col_kpi]['label']}** (Objetivo: {sla_actual} días)")
+            # --- C. DASHBOARD GERENCIAL (GRÁFICOS) ---
+            st.write(f"#### Análisis Detallado: **{sla_config[col_kpi]['label']}** (Objetivo: {sla_actual} días)")
             
-            df_kpi = df_t[df_t[col_kpi].notna()].copy()
+            df_kpi = df_c[df_c[col_kpi].notna()].copy()
 
             if not df_kpi.empty:
-                # --- MÉTRICAS ESPECIALES SI ESTAMOS AUDITANDO LEGAJO ---
-                if col_kpi == "Días Legajo":
+                # Métricas especiales de higiene de carga para Gestión Administrativa (FPP -> FGRD)
+                if col_kpi == "T. Adm desde FPP":
                     conteo_aud = df_kpi["Auditoría Carga Legajo"].value_counts(normalize=True) * 100
                     pct_dia = conteo_aud.get("⚡ En el día", 0)
                     pct_atrasada = conteo_aud.get("🚨 Carga Atrasada", 0)
@@ -986,13 +1073,13 @@ try:
                 
                 fig_donut = px.pie(
                     conteo_sla, values="Cantidad", names="Status", hole=0.5,
-                    title=f"Tasa de Cumplimiento",
+                    title="Tasa de Cumplimiento",
                     color="Status",
                     color_discrete_map={"✅ En Término": "#2ecc71", "🚨 Demorado": "#e74c3c"}
                 )
                 fig_donut.update_traces(textinfo='percent+value', hoverinfo='label+percent')
                 fig_donut.update_layout(height=320, margin=dict(t=40, b=0, l=0, r=0))
-                col_chart1.plotly_chart(fig_donut, use_container_width=True)
+                col_chart1.plotly_chart(fig_donut, use_container_width=True, key=f"g_donut_{prefijo_key}")
 
                 # Gráfico 2: Comparativa por Marca (Barras)
                 if "Marca" in df_kpi.columns:
@@ -1009,54 +1096,46 @@ try:
                     )
                     fig_bar.add_hline(y=sla_actual, line_dash="dot", line_color="red", annotation_text="Objetivo SLA")
                     fig_bar.update_layout(height=320, margin=dict(t=40, b=0, l=0, r=0), showlegend=False, xaxis_title="", yaxis_title="Días Hábiles")
-                    col_chart2.plotly_chart(fig_bar, use_container_width=True)
+                    col_chart2.plotly_chart(fig_bar, use_container_width=True, key=f"g_bar_{prefijo_key}")
             else:
                 st.info("No hay registros suficientes para graficar este KPI en el período seleccionado.")
 
-            # 6. TABLA DE AUDITORÍA (FILTRADA Y ORDENADA)
+            # --- D. MATRIZ DE AUDITORÍA OPERATIVA ---
             st.write("### 📋 Matriz de Auditoría Operativa (Rojo = SLA Incumplido)")
 
             if not df_kpi.empty:
                 df_kpi = df_kpi.sort_values(by=col_kpi, ascending=False)
 
-            cols_mostrar = [
-                "Canal de Venta", "Vendedor", "Cliente", "Marca", "Chasis", "Auditoría Carga Legajo",
-                "Días Legajo", "Días Inscripción", "Días Papeles", "Lead Time Gestoría", "Días USI", "Días Totales"
-            ]
-            cols_ok = [c for c in cols_mostrar if c in df_kpi.columns]
+                cols_id = ["Vendedor", "Cliente", "Marca", "Chasis", "Auditoría Carga Legajo"]
+                cols_metricas = list(sla_config.keys())
+                cols_ok = [c for c in cols_id + cols_metricas if c in df_kpi.columns]
 
-            if not df_kpi.empty:
-                # Renombramos para la matriz
-                mapeo_columnas_tabla = {c_name: c_data["label"] for c_name, c_data in SLA_CONFIG.items()}
+                mapeo_columnas_tabla = {c_name: c_data["label"] for c_name, c_data in sla_config.items()}
                 mapeo_columnas_tabla["Auditoría Carga Legajo"] = "Estado de Carga"
                 mapeo_columnas_tabla["Vendedor"] = "Asesor"
                 df_kpi_renombrado = df_kpi[cols_ok].rename(columns=mapeo_columnas_tabla)
-                
-                # Función de estilo ajustada
-                def resaltar_demoras_renombrado(row):
+
+                label_lead_total = sla_config["Lead Time Total"]["label"]
+
+                def resaltar_demoras_canal(row):
                     estilos = [''] * len(row)
                     
-                    # Pintamos las columnas numéricas de SLAs
-                    for c_name, c_data in SLA_CONFIG.items():
+                    for c_name, c_data in sla_config.items():
                         col_renombrada = c_data["label"]
                         if col_renombrada in row.index:
                             idx = row.index.get_loc(col_renombrada)
                             val = row[col_renombrada]
-                            
-                            # Alarma especial para el "Lead Time Total" (Color Rojo Fuerte)
-                            if col_renombrada == "Lead Time Total":
+                            if col_renombrada == label_lead_total:
                                 if pd.notna(val) and val > c_data["sla"]:
                                     estilos[idx] = 'background-color: #e74c3c; color: white; font-weight: bold;'
                                 elif pd.notna(val) and val <= c_data["sla"]:
                                     estilos[idx] = 'background-color: #ccffcc; color: #006600;'
-                            # Alarma normal para los demás subtramos (Color Rojo Claro)
                             else:
                                 if pd.notna(val) and val > c_data["sla"]:
                                     estilos[idx] = 'background-color: #ffcccc; color: #990000; font-weight: bold;'
                                 elif pd.notna(val) and val <= c_data["sla"]:
                                     estilos[idx] = 'background-color: #ccffcc; color: #006600;'
                     
-                    # Pintamos la columna de Auditoría de Carga (Atrasos en naranja)
                     if "Estado de Carga" in row.index:
                         idx_aud = row.index.get_loc("Estado de Carga")
                         val_aud = str(row["Estado de Carga"])
@@ -1067,15 +1146,34 @@ try:
                             
                     return estilos
 
-                # Solo aplicamos "format" de cero decimales a las columnas numéricas
-                cols_numericas_formato = [c for c in df_kpi_renombrado.columns if c in [d["label"] for d in SLA_CONFIG.values()]]
-                df_estilizado = df_kpi_renombrado.style.apply(resaltar_demoras_renombrado, axis=1).format("{:.0f}", na_rep="-", subset=cols_numericas_formato)
-                st.dataframe(df_estilizado, use_container_width=True, hide_index=True, height=400)
+                cols_numericas_formato = [c for c in df_kpi_renombrado.columns if c in [d["label"] for d in sla_config.values()]]
+                df_estilizado = df_kpi_renombrado.style.apply(resaltar_demoras_canal, axis=1).format("{:.0f}", na_rep="-", subset=cols_numericas_formato)
+                st.dataframe(df_estilizado, use_container_width=True, hide_index=True, height=420)
             else:
-                st.warning("Selecciona otro mes o KPI. No hay datos para mostrar en la matriz.")
+                st.warning("Selecciona otro mes o tramo. No hay datos para mostrar en la matriz.")
 
+        # 6. SEGMENTACIÓN EXCLUSIVA DE CANALES (SOLO TRADICIONAL Y PLAN DE AHORRO)
+        if "Canal de Venta" in df_t_base.columns and not df_t_base.empty:
+            canal_norm = df_t_base["Canal de Venta"].fillna("").astype(str).str.strip().str.upper()
+            
+            # Excluimos explícitamente Mayorista y Autopatentado
+            mask_excluir = canal_norm.str.contains("MAYORISTA|AUTOPATENT", na=False)
+            
+            df_tradicional = df_t_base[(~mask_excluir) & (canal_norm.str.contains("TRADICIONAL|CONVENCIONAL", na=False))].copy()
+            df_pda = df_t_base[(~mask_excluir) & (canal_norm.str.contains("PLAN|PDA|AHORRO", na=False))].copy()
+
+            subtab_trad, subtab_pda = st.tabs([
+                f"🚗 Canal Tradicional - T ({len(df_tradicional)} unid.)",
+                f"📋 Plan de Ahorro - PDA ({len(df_pda)} unid.)"
+            ])
+
+            with subtab_trad:
+                renderizar_tablero_canal(df_tradicional, SLA_CONFIG_T, prefijo_key="trad", es_tradicional=True)
+
+            with subtab_pda:
+                renderizar_tablero_canal(df_pda, SLA_CONFIG_PDA, prefijo_key="pda", es_tradicional=False)
         else:
-            st.info("No hay datos para calcular tiempos operativos en el período seleccionado.")
+            st.info("No hay datos disponibles o falta la columna 'Canal de Venta' para separar Tradicional y Plan de Ahorro.")
 
 except Exception as e:
     st.error(f"❌ Ocurrió un error al cargar o procesar los datos: {e}")
