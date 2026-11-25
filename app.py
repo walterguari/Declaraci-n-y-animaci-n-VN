@@ -756,7 +756,7 @@ try:
                 st.warning("⚠️ No se detectó ninguna de las columnas solicitadas.")
 
     # ---------------------------------------------------------
-    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (INTERACTIVO BIDIRECCIONAL)
+    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (LÍNEA DE TIEMPO HORIZONTAL + INTERACTIVO)
     # ---------------------------------------------------------
     with tab_tiempos:
         st.header("⏱️ Análisis de Tiempos")
@@ -863,45 +863,174 @@ try:
             except:
                 return "Sin fecha"
 
-        # 4. CONFIGURACIONES DE LÍNEA DE TIEMPO POR CANAL (CON FECHAS DE REFERENCIA PARA TOOLTIP)
+        # 4. FUNCIÓN PARA DIBUJAR LA LÍNEA DE TIEMPO HORIZONTAL (ESTILO ONDULADO PASTEL)
+        def renderizar_linea_tiempo_horizontal(titulo, subtitulo, nodos):
+            n = len(nodos)
+            if n == 0:
+                return
+
+            col_w = 235
+            pad_x = 24
+            total_w = n * col_w + 2 * pad_x
+            h = 445
+            y_mid = 222
+            rx = col_w / 2.0
+            ry = 64
+
+            # Construcción de la curva ondulada continua y punteros alternados (arriba / abajo)
+            path_parts = [f"M {pad_x} {y_mid}"]
+            triangulos_svg = []
+            for i in range(n):
+                x_end = pad_x + (i + 1) * col_w
+                cx = pad_x + i * col_w + rx
+                sweep = 1 if i % 2 == 0 else 0  # 1 = arco hacia arriba, 0 = arco hacia abajo
+                path_parts.append(f"A {rx} {ry} 0 0 {sweep} {x_end} {y_mid}")
+
+                if i % 2 == 0:
+                    y_peak = y_mid - ry
+                    triangulos_svg.append(
+                        f'<polygon points="{cx - 8},{y_peak + 1} {cx + 8},{y_peak + 1} {cx},{y_peak - 12}" fill="#cbd5e1" />'
+                    )
+                else:
+                    y_peak = y_mid + ry
+                    triangulos_svg.append(
+                        f'<polygon points="{cx - 8},{y_peak - 1} {cx + 8},{y_peak - 1} {cx},{y_peak + 12}" fill="#cbd5e1" />'
+                    )
+
+            path_d = " ".join(path_parts)
+            x_fin_total = pad_x + n * col_w
+
+            svg_wave = (
+                f'<svg width="{total_w}" height="{h}" viewBox="0 0 {total_w} {h}" '
+                f'style="position:absolute; top:0; left:0; pointer-events:none;">'
+                f'<path d="{path_d}" fill="none" stroke="#cbd5e1" stroke-width="5" stroke-linecap="round" />'
+                f'<circle cx="{pad_x}" cy="{y_mid}" r="6" fill="#cbd5e1" />'
+                f'<circle cx="{x_fin_total}" cy="{y_mid}" r="6" fill="#cbd5e1" />'
+                f'{"".join(triangulos_svg)}'
+                f'</svg>'
+            )
+
+            # Construcción de cada nodo (círculo pastel + píldora de título + descripción)
+            nodos_html = []
+            for i, nodo in enumerate(nodos):
+                cx = pad_x + i * col_w + rx
+                bg_pastel = nodo["color"]
+                valor_str = nodo["valor_str"]
+                obj_str = nodo["obj_str"]
+                titulo_nodo = nodo["titulo"]
+                desc_nodo = nodo["desc"]
+                incumplido = nodo["incumplido"]
+                tooltip_txt = nodo["tooltip"]
+
+                borde_circulo = "3px solid #e74c3c" if incumplido else "3px solid rgba(255,255,255,0.9)"
+                badge_alerta = '<span style="color:#c0392b; font-size:10px; font-weight:700;">● Sobre SLA</span>' if incumplido else '<span style="color:#15803d; font-size:10px; font-weight:700;">● En objetivo</span>'
+                if valor_str == "S/D":
+                    borde_circulo = "2px dashed #94a3b8"
+                    badge_alerta = '<span style="color:#64748b; font-size:10px;">Sin datos</span>'
+
+                # Círculo pastel centrado en el arco
+                circle_html = (
+                    f'<div title="{tooltip_txt}" style="position:absolute; left:{cx - 47}px; top:{y_mid - 47}px; '
+                    f'width:94px; height:94px; border-radius:50%; background:{bg_pastel}; border:{borde_circulo}; '
+                    f'display:flex; flex-direction:column; align-items:center; justify-content:center; '
+                    f'box-shadow:0 4px 10px rgba(15,23,42,0.08); cursor:default;">'
+                    f'<div style="font-size:20px; font-weight:800; color:#111827; line-height:1.1;">{valor_str}</div>'
+                    f'<div style="font-size:10.5px; font-weight:600; color:#334155; margin-top:2px;">{obj_str}</div>'
+                    f'</div>'
+                )
+
+                # Etiqueta redondeada + texto descriptivo (arriba en pares, abajo en impares)
+                card_left = pad_x + i * col_w + 8
+                card_w = col_w - 16
+                if i % 2 == 0:
+                    box_style = (
+                        f'position:absolute; left:{card_left}px; top:4px; width:{card_w}px; height:{y_mid - ry - 20}px; '
+                        f'display:flex; flex-direction:column; align-items:center; justify-content:flex-end; text-align:center;'
+                    )
+                else:
+                    box_style = (
+                        f'position:absolute; left:{card_left}px; top:{y_mid + ry + 16}px; width:{card_w}px; height:{h - (y_mid + ry + 20)}px; '
+                        f'display:flex; flex-direction:column; align-items:center; justify-content:flex-start; text-align:center;'
+                    )
+
+                text_box_html = (
+                    f'<div title="{tooltip_txt}" style="{box_style}">'
+                    f'<div style="background:{bg_pastel}; color:#0f172a; font-weight:700; font-size:11.5px; '
+                    f'line-height:1.25; padding:5px 12px; border-radius:14px; display:inline-block; '
+                    f'max-width:100%; box-shadow:0 1px 3px rgba(0,0,0,0.06);">{titulo_nodo}</div>'
+                    f'<div style="font-size:11px; line-height:1.3; color:#334155; margin-top:5px;">{desc_nodo}</div>'
+                    f'<div style="margin-top:2px;">{badge_alerta}</div>'
+                    f'</div>'
+                )
+
+                nodos_html.append(circle_html + text_box_html)
+
+            html_final = (
+                f'<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:16px; '
+                f'padding:20px 14px 12px 14px; font-family:Inter, -apple-system, BlinkMacSystemFont, sans-serif; '
+                f'box-shadow:0 2px 8px rgba(15,23,42,0.04);">'
+                f'<div style="text-align:center; margin-bottom:4px;">'
+                f'<div style="font-size:24px; font-weight:800; color:#0f172a; letter-spacing:-0.3px;">{titulo}</div>'
+                f'<div style="font-size:13.5px; color:#475569; margin-top:2px;">{subtitulo}</div>'
+                f'</div>'
+                f'<div style="overflow-x:auto; padding:4px 0;">'
+                f'<div style="position:relative; width:{total_w}px; height:{h}px; margin:0 auto;">'
+                f'{svg_wave}'
+                f'{"".join(nodos_html)}'
+                f'</div>'
+                f'</div>'
+                f'</div>'
+            )
+
+            st.html(html_final)
+
+        # 5. CONFIGURACIONES DE LÍNEA DE TIEMPO POR CANAL (CON NUEVOS NOMBRES)
         SLA_CONFIG_T = {
             "T. Adm desde FF": {
-                "sla": 2, "icon": "🧾", "label": "Adm. desde FF (FF ➔ FPP)",
+                "sla": 2, "icon": "🧾",
+                "label": "Tiempo de Administración después de la fecha de facturación",
                 "f_ini": "Fecha de Facturacion", "f_fin": "Fecha de Pedido de Preparación",
-                "desc": "Mide el tiempo desde la Fecha de Facturación (FF) hasta el Pedido de Preparación (FPP)."
+                "desc": "Mide los días hábiles desde la Fecha de Facturación (FF) hasta la Fecha de Pedido de Preparación (FPP)."
             },
             "T. Adm desde FPP": {
-                "sla": 2, "icon": "📁", "label": "Adm. desde FPP (FPP ➔ FGRD)",
+                "sla": 2, "icon": "📁",
+                "label": "Tiempo de Administración después de la Fecha de Preparación de Pedido",
                 "f_ini": "Fecha de Pedido de Preparación", "f_fin": "Fecha que el Gestor Retira Doc",
-                "desc": "Mide los días hábiles entre el Pedido de Preparación (FPP) y el Retiro de Documentación (FGRD). Si FPP es posterior a FGRD, mide los días de atraso de carga."
+                "desc": "Mide los días hábiles entre la Fecha de Pedido de Preparación (FPP) y el Retiro de Documentación (FGRD). Si FPP es posterior a FGRD, mide los días de atraso de carga."
             },
             "T. Adm Total": {
-                "sla": 4, "icon": "🗂️", "label": "Total Administrativo (FF ➔ FGRD)",
+                "sla": 4, "icon": "🗂️",
+                "label": "Total Administrativo (FF ➔ FGRD)",
                 "f_ini": "Fecha de Facturacion", "f_fin": "Fecha que el Gestor Retira Doc",
                 "desc": "Mide el tiempo administrativo acumulado desde la Fecha de Facturación (FF) hasta que el Gestor retira la documentación (FGRD)."
             },
             "Días Inscripción": {
-                "sla": 1, "icon": "📝", "label": "Gestoría: Inscripción (FGRD ➔ FDP)",
+                "sla": 1, "icon": "📝",
+                "label": "Tiempo de Gestor: Inscripción",
                 "f_ini": "Fecha que el Gestor Retira Doc", "f_fin": "Fecha de Patentamiento",
                 "desc": "Mide el tiempo desde que el Gestor retira la documentación (FGRD) hasta el Patentamiento (FDP)."
             },
             "Días Papeles": {
-                "sla": 2, "icon": "📄", "label": "Gestoría: Disp. Papeles (FDP ➔ Disp.)",
+                "sla": 2, "icon": "📄",
+                "label": "Tiempo de Gestor: Disp. Papeles",
                 "f_ini": "Fecha de Patentamiento", "f_fin": "Fecha Disponibilidad Papeles",
                 "desc": "Mide el tiempo desde el Patentamiento (FDP) hasta la Disponibilidad de Papeles en sucursal."
             },
             "Lead Time Gestoría": {
-                "sla": 3, "icon": "📊", "label": "Total Gestoría (FGRD ➔ Disp.)",
+                "sla": 3, "icon": "📊",
+                "label": "Tiempo de Gestor (Total)",
                 "f_ini": "Fecha que el Gestor Retira Doc", "f_fin": "Fecha Disponibilidad Papeles",
-                "desc": "Mide el tiempo total en gestoría externa, desde el retiro de documentación (FGRD) hasta la disponibilidad de papeles."
+                "desc": "Mide el tiempo total de gestión externa (Tiempo de Gestor), desde el retiro de documentación (FGRD) hasta la disponibilidad de papeles."
             },
             "Días USI": {
-                "sla": 2, "icon": "🚗", "label": "Sector USI / Entrega (Disp. ➔ Entrega)",
+                "sla": 2, "icon": "🚗",
+                "label": "Tiempo de entrega",
                 "f_ini": "Fecha Disponibilidad Papeles", "f_fin": "Fecha de confirmacion de entrega",
                 "desc": "Mide el tiempo desde la Disponibilidad de Papeles hasta la Confirmación de Entrega al cliente."
             },
             "Lead Time Total": {
-                "sla": 9, "icon": "🏁", "label": "Lead Time Total (FF ➔ Entrega)",
+                "sla": 9, "icon": "🏁",
+                "label": "Lead Time Total (FF ➔ Entrega)",
                 "f_ini": "Fecha de Facturacion", "f_fin": "Fecha de confirmacion de entrega",
                 "desc": "Mide el ciclo completo del canal Tradicional desde la Facturación (FF) hasta la Confirmación de Entrega (Objetivo acumulado: 9 días)."
             }
@@ -909,38 +1038,44 @@ try:
 
         SLA_CONFIG_PDA = {
             "T. Adm desde FPP": {
-                "sla": 2, "icon": "📁", "label": "Gestión Administrativa (FPP ➔ FGRD)",
+                "sla": 2, "icon": "📁",
+                "label": "Tiempo de Administración después de la Fecha de Preparación de Pedido",
                 "f_ini": "Fecha de Pedido de Preparación", "f_fin": "Fecha que el Gestor Retira Doc",
-                "desc": "Mide los días hábiles entre el Pedido de Preparación (FPP) y el Retiro de Documentación (FGRD). Si FPP es posterior a FGRD, mide los días de atraso de carga."
+                "desc": "Mide los días hábiles entre la Fecha de Pedido de Preparación (FPP) y el Retiro de Documentación (FGRD). Si FPP es posterior a FGRD, mide los días de atraso de carga."
             },
             "Días Inscripción": {
-                "sla": 1, "icon": "📝", "label": "Gestoría: Inscripción (FGRD ➔ FDP)",
+                "sla": 1, "icon": "📝",
+                "label": "Tiempo de Gestor: Inscripción",
                 "f_ini": "Fecha que el Gestor Retira Doc", "f_fin": "Fecha de Patentamiento",
                 "desc": "Mide el tiempo desde que el Gestor retira la documentación (FGRD) hasta el Patentamiento (FDP)."
             },
             "Días Papeles": {
-                "sla": 2, "icon": "📄", "label": "Gestoría: Disp. Papeles (FDP ➔ Disp.)",
+                "sla": 2, "icon": "📄",
+                "label": "Tiempo de Gestor: Disp. Papeles",
                 "f_ini": "Fecha de Patentamiento", "f_fin": "Fecha Disponibilidad Papeles",
                 "desc": "Mide el tiempo desde el Patentamiento (FDP) hasta la Disponibilidad de Papeles en sucursal."
             },
             "Lead Time Gestoría": {
-                "sla": 3, "icon": "📊", "label": "Total Gestoría (FGRD ➔ Disp.)",
+                "sla": 3, "icon": "📊",
+                "label": "Tiempo de Gestor (Total)",
                 "f_ini": "Fecha que el Gestor Retira Doc", "f_fin": "Fecha Disponibilidad Papeles",
-                "desc": "Mide el tiempo total en gestoría externa, desde el retiro de documentación (FGRD) hasta la disponibilidad de papeles."
+                "desc": "Mide el tiempo total de gestión externa (Tiempo de Gestor), desde el retiro de documentación (FGRD) hasta la disponibilidad de papeles."
             },
             "Días USI": {
-                "sla": 2, "icon": "🚗", "label": "Sector USI / Entrega (Disp. ➔ Entrega)",
+                "sla": 2, "icon": "🚗",
+                "label": "Tiempo de entrega",
                 "f_ini": "Fecha Disponibilidad Papeles", "f_fin": "Fecha de confirmacion de entrega",
                 "desc": "Mide el tiempo desde la Disponibilidad de Papeles hasta la Confirmación de Entrega al cliente."
             },
             "Lead Time Total": {
-                "sla": 7, "icon": "🏁", "label": "Lead Time Total (FPP ➔ Entrega)",
+                "sla": 7, "icon": "🏁",
+                "label": "Lead Time Total (FPP ➔ Entrega)",
                 "f_ini": "Fecha de Pedido de Preparación", "f_fin": "Fecha de confirmacion de entrega",
                 "desc": "Mide el ciclo completo de Plan de Ahorro desde el Pedido de Preparación (FPP) hasta la Confirmación de Entrega (Objetivo acumulado: 7 días)."
             }
         }
 
-        # 5. FUNCIÓN REUTILIZABLE PARA RENDERIZAR CADA TABLERO DE CANAL
+        # 6. FUNCIÓN REUTILIZABLE PARA RENDERIZAR CADA TABLERO DE CANAL
         def renderizar_tablero_canal(df_canal, sla_config, prefijo_key, es_tradicional):
             if df_canal.empty:
                 st.info("No hay operaciones registradas para este canal con los filtros seleccionados.")
@@ -956,76 +1091,73 @@ try:
             df_c["Lead Time Gestoría"] = df_c.apply(lambda r: calcular_dias_habiles(r.get("Fecha que el Gestor Retira Doc"), r.get("Fecha Disponibilidad Papeles")), axis=1)
             df_c["Días USI"] = df_c.apply(lambda r: calcular_dias_habiles(r.get("Fecha Disponibilidad Papeles"), r.get("Fecha de confirmacion de entrega")), axis=1)
 
-            # Cálculos diferenciales por canal
             if es_tradicional:
                 df_c["T. Adm desde FF"] = df_c.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Facturacion"), r.get("Fecha de Pedido de Preparación")), axis=1)
                 df_c["T. Adm Total"] = df_c.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Facturacion"), r.get("Fecha que el Gestor Retira Doc")), axis=1)
                 df_c["Lead Time Total"] = df_c.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Facturacion"), r.get("Fecha de confirmacion de entrega")), axis=1)
-                tramos_secuenciales = [
-                    ("1. Adm. FF ➔ FPP", "T. Adm desde FF", "#5dade2"),
-                    ("2. Adm. FPP ➔ FGRD", "T. Adm desde FPP", "#2e86c1"),
-                    ("3. Inscripción (FGRD ➔ FDP)", "Días Inscripción", "#f5b041"),
-                    ("4. Disp. Papeles (FDP ➔ Disp.)", "Días Papeles", "#eb984e"),
-                    ("5. Sector USI (Disp. ➔ Entrega)", "Días USI", "#e74c3c")
-                ]
-                flujo_texto = "**Línea de Tiempo Tradicional:** `FF` ➔ `FPP` ➔ `FGRD` ➔ `FDP` ➔ `Disp. Papeles` ➔ `Conf. Entrega`"
             else:
                 df_c["Lead Time Total"] = df_c.apply(lambda r: calcular_dias_habiles(r.get("Fecha de Pedido de Preparación"), r.get("Fecha de confirmacion de entrega")), axis=1)
-                tramos_secuenciales = [
-                    ("1. Gestión Adm. (FPP ➔ FGRD)", "T. Adm desde FPP", "#2e86c1"),
-                    ("2. Inscripción (FGRD ➔ FDP)", "Días Inscripción", "#f5b041"),
-                    ("3. Disp. Papeles (FDP ➔ Disp.)", "Días Papeles", "#eb984e"),
-                    ("4. Sector USI (Disp. ➔ Entrega)", "Días USI", "#e74c3c")
-                ]
-                flujo_texto = "**Línea de Tiempo Plan de Ahorro (PDA):** `FPP` ➔ `FGRD` ➔ `FDP` ➔ `Disp. Papeles` ➔ `Conf. Entrega`"
 
-            # Aseguramos tipo numérico limpio para evitar que se imprima "None" en la tabla
             for col_m in sla_config.keys():
                 if col_m in df_c.columns:
                     df_c[col_m] = pd.to_numeric(df_c[col_m], errors="coerce")
 
-            # --- A. BARRA VISUAL DE COMPOSICIÓN DE LA LÍNEA DE TIEMPO (CON HOVER ENRIQUECIDO) ---
-            st.markdown(f"{flujo_texto} &nbsp; | &nbsp; **Unidades evaluadas:** `{len(df_c)}`")
+            # --- A. LÍNEA DE TIEMPO HORIZONTAL (ESTILO PASTEL ONDULADO) ---
+            def armar_nodo(col_df, titulo_n, desc_n, color_hex, sla_val):
+                s_ok = df_c[col_df].dropna()
+                if s_ok.empty:
+                    return {
+                        "titulo": titulo_n,
+                        "desc": desc_n,
+                        "color": color_hex,
+                        "valor_str": "S/D",
+                        "obj_str": f"Obj: {sla_val}d",
+                        "incumplido": False,
+                        "tooltip": f"{titulo_n} — Sin datos en el período seleccionado"
+                    }
+                prom = s_ok.mean()
+                pct_ok = (s_ok <= sla_val).mean() * 100
+                return {
+                    "titulo": titulo_n,
+                    "desc": desc_n,
+                    "color": color_hex,
+                    "valor_str": f"{prom:.1f} d",
+                    "obj_str": f"Obj: {sla_val}d",
+                    "incumplido": bool(prom > sla_val),
+                    "tooltip": f"{titulo_n} | Promedio: {prom:.1f} d | SLA: {sla_val} d | En término: {pct_ok:.1f}% ({len(s_ok)} unid.)"
+                }
 
-            datos_timeline = []
-            mapa_colores_tl = {}
-            for nombre_etapa, col_etapa, color_hex in tramos_secuenciales:
-                serie_ok = df_c[col_etapa].dropna()
-                if not serie_ok.empty and serie_ok.mean() > 0:
-                    prom_val = serie_ok.mean()
-                    sla_et = sla_config[col_etapa]["sla"]
-                    estado_et = "✅ En objetivo" if prom_val <= sla_et else f"🚨 +{prom_val - sla_et:.1f} d sobre SLA"
-                    datos_timeline.append({
-                        "Proceso": "Promedio del Ciclo",
-                        "Etapa": nombre_etapa,
-                        "Días": round(prom_val, 1),
-                        "SLA": sla_et,
-                        "Unidades": len(serie_ok),
-                        "Estado": estado_et
-                    })
-                    mapa_colores_tl[nombre_etapa] = color_hex
+            prom_insc = df_c["Días Inscripción"].mean()
+            prom_pap = df_c["Días Papeles"].mean()
+            txt_insc = f"{prom_insc:.1f}d" if pd.notna(prom_insc) else "S/D"
+            txt_pap = f"{prom_pap:.1f}d" if pd.notna(prom_pap) else "S/D"
+            desc_gestor = f"FGRD ➔ Disp. Papeles<br>Inscripción: <b>{txt_insc}</b> | Papeles: <b>{txt_pap}</b>"
 
-            if datos_timeline:
-                df_tl = pd.DataFrame(datos_timeline)
-                fig_tl = px.bar(
-                    df_tl, x="Días", y="Proceso", color="Etapa", orientation="h",
-                    text="Días", custom_data=["Etapa", "SLA", "Unidades", "Estado"],
-                    color_discrete_map=mapa_colores_tl,
-                    title="🧭 Radiografía del Ciclo Promedio (Pasá el cursor por cada etapa)",
-                    template="plotly_white"
+            if es_tradicional:
+                nodos_tl = [
+                    armar_nodo("T. Adm desde FF", "Tiempo de Administración después de la fecha de facturación", "FF ➔ FPP (Facturación a Pedido de Preparación)", "#c5d9f8", sla_config["T. Adm desde FF"]["sla"]),
+                    armar_nodo("T. Adm desde FPP", "Tiempo de Administración después de la Fecha de Preparación de Pedido", "FPP ➔ FGRD (Armado de legajo hasta retiro del gestor)", "#d8c8f8", sla_config["T. Adm desde FPP"]["sla"]),
+                    armar_nodo("Lead Time Gestoría", "Tiempo de Gestor", desc_gestor, "#f9c6df", sla_config["Lead Time Gestoría"]["sla"]),
+                    armar_nodo("Días USI", "Tiempo de entrega", "Disp. Papeles ➔ Conf. Entrega (Alistamiento y entrega)", "#f9e09b", sla_config["Días USI"]["sla"]),
+                    armar_nodo("Lead Time Total", "Lead Time Total", "FF ➔ Conf. Entrega (Ciclo completo Tradicional)", "#b6eccb", sla_config["Lead Time Total"]["sla"])
+                ]
+                renderizar_linea_tiempo_horizontal(
+                    titulo="Línea de tiempo",
+                    subtitulo=f"Línea cronológica — Canal Tradicional (T) · {len(df_c)} unidades evaluadas",
+                    nodos=nodos_tl
                 )
-                fig_tl.update_traces(
-                    texttemplate="%{text:.1f} d",
-                    textposition="inside",
-                    hovertemplate="<b>%{customdata[0]}</b><br>Promedio real: <b>%{x:.1f} días</b><br>Objetivo SLA: %{customdata[1]} días<br>Unidades medidas: %{customdata[2]}<br>Estado: <b>%{customdata[3]}</b><extra></extra>"
+            else:
+                nodos_tl = [
+                    armar_nodo("T. Adm desde FPP", "Tiempo de Administración después de la Fecha de Preparación de Pedido", "FPP ➔ FGRD (Armado de legajo hasta retiro del gestor)", "#d8c8f8", sla_config["T. Adm desde FPP"]["sla"]),
+                    armar_nodo("Lead Time Gestoría", "Tiempo de Gestor", desc_gestor, "#f9c6df", sla_config["Lead Time Gestoría"]["sla"]),
+                    armar_nodo("Días USI", "Tiempo de entrega", "Disp. Papeles ➔ Conf. Entrega (Alistamiento y entrega)", "#f9e09b", sla_config["Días USI"]["sla"]),
+                    armar_nodo("Lead Time Total", "Lead Time Total", "FPP ➔ Conf. Entrega (Ciclo completo Plan de Ahorro)", "#b6eccb", sla_config["Lead Time Total"]["sla"])
+                ]
+                renderizar_linea_tiempo_horizontal(
+                    titulo="Línea de tiempo",
+                    subtitulo=f"Línea cronológica — Plan de Ahorro (PDA) · {len(df_c)} unidades evaluadas",
+                    nodos=nodos_tl
                 )
-                fig_tl.update_layout(
-                    barmode="stack", height=185,
-                    margin=dict(t=40, b=10, l=10, r=10),
-                    yaxis_title="", xaxis_title="Días Hábiles Acumulados",
-                    legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5, title="")
-                )
-                st.plotly_chart(fig_tl, use_container_width=True, key=f"g_timeline_{prefijo_key}")
 
             st.divider()
 
@@ -1316,7 +1448,7 @@ try:
                                     title=f"Comparativa Etapa por Etapa vs. Objetivo SLA — {nom_cli} (Pasá el cursor para ver fechas exactas)",
                                     yaxis_title="Días Hábiles",
                                     xaxis_title="",
-                                    height=340,
+                                    height=360,
                                     template="plotly_white",
                                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                                     margin=dict(t=55, b=20, l=10, r=10)
@@ -1328,7 +1460,7 @@ try:
             else:
                 st.warning("Selecciona otro mes, tramo o limpiá los filtros del gráfico. No hay datos para mostrar en la matriz.")
 
-        # 6. SEGMENTACIÓN EXCLUSIVA DE CANALES (SOLO TRADICIONAL Y PLAN DE AHORRO)
+        # 7. SEGMENTACIÓN EXCLUSIVA DE CANALES (SOLO TRADICIONAL Y PLAN DE AHORRO)
         if "Canal de Venta" in df_t_base.columns and not df_t_base.empty:
             canal_norm = df_t_base["Canal de Venta"].fillna("").astype(str).str.strip().str.upper()
 
