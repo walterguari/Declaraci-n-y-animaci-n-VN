@@ -3,6 +3,7 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime
 import urllib.parse
 
@@ -512,7 +513,6 @@ try:
             
             df_tabla = df_anim[cols_con_marca].copy()
             
-            # --- LIMPIEZA DE COLUMNAS NUMÉRICAS/NOTAS ---
             cols_notas = ["Encuesta Temprana", "EI - Reco"]
             for col_n in cols_notas:
                 if col_n in df_tabla.columns:
@@ -756,7 +756,7 @@ try:
                 st.warning("⚠️ No se detectó ninguna de las columnas solicitadas.")
                 
     # ---------------------------------------------------------
-    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (SEPARADO EN TRADICIONAL Y PDA)
+    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (INTERACTIVO BIDIRECCIONAL)
     # ---------------------------------------------------------
     with tab_tiempos:
         st.header("⏱️ Análisis de Tiempos")
@@ -795,6 +795,9 @@ try:
                         color_discrete_sequence=['#3498db' if tipo_g == "Facturación" else '#2ecc71'],
                         template="plotly_white", height=300
                     )
+                    fig_v.update_traces(
+                        hovertemplate="<b>%{x}</b><br>Volumen: <b>%{y} unid.</b><extra></extra>"
+                    )
                     st.plotly_chart(fig_v, use_container_width=True, key="g_evol_mensual_tiempos")
 
         st.divider()
@@ -827,22 +830,22 @@ try:
 
         # 3. FUNCIONES DE CÁLCULO DE DÍAS HÁBILES (LUNES A VIERNES)
         def calcular_dias_habiles(start, end):
-            if pd.isna(start) or pd.isna(end): return None
+            if pd.isna(start) or pd.isna(end): return np.nan
             try:
                 s, e = pd.to_datetime(start), pd.to_datetime(end)
                 if s > e: return 0
                 return max(0, len(pd.bdate_range(s, e)) - 1)
-            except: return None
+            except: return np.nan
 
         def calcular_dias_legajo(start, end):
-            if pd.isna(start) or pd.isna(end): return None
+            if pd.isna(start) or pd.isna(end): return np.nan
             try:
                 s, e = pd.to_datetime(start), pd.to_datetime(end)
                 if s <= e:
-                    return max(0, len(pd.bdate_range(s, e)) - 1) # Flujo Normal
+                    return max(0, len(pd.bdate_range(s, e)) - 1)
                 else:
-                    return max(0, len(pd.bdate_range(e, s)) - 1) # Atraso de Carga (Fechas Invertidas)
-            except: return None
+                    return max(0, len(pd.bdate_range(e, s)) - 1)
+            except: return np.nan
 
         def auditar_carga_administrativa(start, end):
             if pd.isna(start) or pd.isna(end): return "Sin datos"
@@ -853,93 +856,86 @@ try:
                 else: return "🚨 Carga Atrasada"
             except: return "Sin datos"
 
-        # 4. CONFIGURACIONES DE LÍNEA DE TIEMPO POR CANAL
+        def fmt_fecha_corta(val):
+            if pd.isna(val): return "Sin fecha"
+            try:
+                return pd.to_datetime(val).strftime("%d/%m/%Y")
+            except:
+                return "Sin fecha"
+
+        # 4. CONFIGURACIONES DE LÍNEA DE TIEMPO POR CANAL (CON FECHAS DE REFERENCIA PARA TOOLTIP)
         SLA_CONFIG_T = {
             "T. Adm desde FF": {
-                "sla": 2,
-                "icon": "🧾",
-                "label": "Adm. desde FF (FF ➔ FPP)",
+                "sla": 2, "icon": "🧾", "label": "Adm. desde FF (FF ➔ FPP)",
+                "f_ini": "Fecha de Facturacion", "f_fin": "Fecha de Pedido de Preparación",
                 "desc": "Mide el tiempo desde la Fecha de Facturación (FF) hasta el Pedido de Preparación (FPP)."
             },
             "T. Adm desde FPP": {
-                "sla": 2,
-                "icon": "📁",
-                "label": "Adm. desde FPP (FPP ➔ FGRD)",
+                "sla": 2, "icon": "📁", "label": "Adm. desde FPP (FPP ➔ FGRD)",
+                "f_ini": "Fecha de Pedido de Preparación", "f_fin": "Fecha que el Gestor Retira Doc",
                 "desc": "Mide los días hábiles entre el Pedido de Preparación (FPP) y el Retiro de Documentación (FGRD). Si FPP es posterior a FGRD, mide los días de atraso de carga."
             },
             "T. Adm Total": {
-                "sla": 4,
-                "icon": "🗂️",
-                "label": "Total Administrativo (FF ➔ FGRD)",
+                "sla": 4, "icon": "🗂️", "label": "Total Administrativo (FF ➔ FGRD)",
+                "f_ini": "Fecha de Facturacion", "f_fin": "Fecha que el Gestor Retira Doc",
                 "desc": "Mide el tiempo administrativo acumulado desde la Fecha de Facturación (FF) hasta que el Gestor retira la documentación (FGRD)."
             },
             "Días Inscripción": {
-                "sla": 1,
-                "icon": "📝",
-                "label": "Gestoría: Inscripción (FGRD ➔ FDP)",
+                "sla": 1, "icon": "📝", "label": "Gestoría: Inscripción (FGRD ➔ FDP)",
+                "f_ini": "Fecha que el Gestor Retira Doc", "f_fin": "Fecha de Patentamiento",
                 "desc": "Mide el tiempo desde que el Gestor retira la documentación (FGRD) hasta el Patentamiento (FDP)."
             },
             "Días Papeles": {
-                "sla": 2,
-                "icon": "📄",
-                "label": "Gestoría: Disp. Papeles (FDP ➔ Disp.)",
+                "sla": 2, "icon": "📄", "label": "Gestoría: Disp. Papeles (FDP ➔ Disp.)",
+                "f_ini": "Fecha de Patentamiento", "f_fin": "Fecha Disponibilidad Papeles",
                 "desc": "Mide el tiempo desde el Patentamiento (FDP) hasta la Disponibilidad de Papeles en sucursal."
             },
             "Lead Time Gestoría": {
-                "sla": 3,
-                "icon": "📊",
-                "label": "Total Gestoría (FGRD ➔ Disp.)",
+                "sla": 3, "icon": "📊", "label": "Total Gestoría (FGRD ➔ Disp.)",
+                "f_ini": "Fecha que el Gestor Retira Doc", "f_fin": "Fecha Disponibilidad Papeles",
                 "desc": "Mide el tiempo total en gestoría externa, desde el retiro de documentación (FGRD) hasta la disponibilidad de papeles."
             },
             "Días USI": {
-                "sla": 2,
-                "icon": "🚗",
-                "label": "Sector USI / Entrega (Disp. ➔ Entrega)",
+                "sla": 2, "icon": "🚗", "label": "Sector USI / Entrega (Disp. ➔ Entrega)",
+                "f_ini": "Fecha Disponibilidad Papeles", "f_fin": "Fecha de confirmacion de entrega",
                 "desc": "Mide el tiempo desde la Disponibilidad de Papeles hasta la Confirmación de Entrega al cliente."
             },
             "Lead Time Total": {
-                "sla": 9,
-                "icon": "🏁",
-                "label": "Lead Time Total (FF ➔ Entrega)",
+                "sla": 9, "icon": "🏁", "label": "Lead Time Total (FF ➔ Entrega)",
+                "f_ini": "Fecha de Facturacion", "f_fin": "Fecha de confirmacion de entrega",
                 "desc": "Mide el ciclo completo del canal Tradicional desde la Facturación (FF) hasta la Confirmación de Entrega (Objetivo acumulado: 9 días)."
             }
         }
 
         SLA_CONFIG_PDA = {
             "T. Adm desde FPP": {
-                "sla": 2,
-                "icon": "📁",
-                "label": "Gestión Administrativa (FPP ➔ FGRD)",
+                "sla": 2, "icon": "📁", "label": "Gestión Administrativa (FPP ➔ FGRD)",
+                "f_ini": "Fecha de Pedido de Preparación", "f_fin": "Fecha que el Gestor Retira Doc",
                 "desc": "Mide los días hábiles entre el Pedido de Preparación (FPP) y el Retiro de Documentación (FGRD). Si FPP es posterior a FGRD, mide los días de atraso de carga."
             },
             "Días Inscripción": {
-                "sla": 1,
-                "icon": "📝",
-                "label": "Gestoría: Inscripción (FGRD ➔ FDP)",
+                "sla": 1, "icon": "📝", "label": "Gestoría: Inscripción (FGRD ➔ FDP)",
+                "f_ini": "Fecha que el Gestor Retira Doc", "f_fin": "Fecha de Patentamiento",
                 "desc": "Mide el tiempo desde que el Gestor retira la documentación (FGRD) hasta el Patentamiento (FDP)."
             },
             "Días Papeles": {
-                "sla": 2,
-                "icon": "📄",
-                "label": "Gestoría: Disp. Papeles (FDP ➔ Disp.)",
+                "sla": 2, "icon": "📄", "label": "Gestoría: Disp. Papeles (FDP ➔ Disp.)",
+                "f_ini": "Fecha de Patentamiento", "f_fin": "Fecha Disponibilidad Papeles",
                 "desc": "Mide el tiempo desde el Patentamiento (FDP) hasta la Disponibilidad de Papeles en sucursal."
             },
             "Lead Time Gestoría": {
-                "sla": 3,
-                "icon": "📊",
-                "label": "Total Gestoría (FGRD ➔ Disp.)",
+                "sla": 3, "icon": "📊", "label": "Total Gestoría (FGRD ➔ Disp.)",
+                "f_ini": "Fecha que el Gestor Retira Doc", "f_fin": "Fecha Disponibilidad Papeles",
                 "desc": "Mide el tiempo total en gestoría externa, desde el retiro de documentación (FGRD) hasta la disponibilidad de papeles."
             },
             "Días USI": {
-                "sla": 2,
-                "icon": "🚗",
-                "label": "Sector USI / Entrega (Disp. ➔ Entrega)",
+                "sla": 2, "icon": "🚗", "label": "Sector USI / Entrega (Disp. ➔ Entrega)",
+                "f_ini": "Fecha Disponibilidad Papeles", "f_fin": "Fecha de confirmacion de entrega",
                 "desc": "Mide el tiempo desde la Disponibilidad de Papeles hasta la Confirmación de Entrega al cliente."
             },
             "Lead Time Total": {
-                "sla": 7,
-                "icon": "🏁",
-                "label": "Lead Time Total (FPP ➔ Entrega)",
+                "sla": 7, "icon": "🏁", "label": "Lead Time Total (FPP ➔ Entrega)",
+                "f_ini": "Fecha de Pedido de Preparación", "f_fin": "Fecha de confirmacion de entrega",
                 "desc": "Mide el ciclo completo de Plan de Ahorro desde el Pedido de Preparación (FPP) hasta la Confirmación de Entrega (Objetivo acumulado: 7 días)."
             }
         }
@@ -983,18 +979,29 @@ try:
                 ]
                 flujo_texto = "**Línea de Tiempo Plan de Ahorro (PDA):** `FPP` ➔ `FGRD` ➔ `FDP` ➔ `Disp. Papeles` ➔ `Conf. Entrega`"
 
-            # --- A. BARRA VISUAL DE COMPOSICIÓN DE LA LÍNEA DE TIEMPO ---
+            # Aseguramos tipo numérico limpio para evitar que se imprima "None" en la tabla
+            for col_m in sla_config.keys():
+                if col_m in df_c.columns:
+                    df_c[col_m] = pd.to_numeric(df_c[col_m], errors="coerce")
+
+            # --- A. BARRA VISUAL DE COMPOSICIÓN DE LA LÍNEA DE TIEMPO (CON HOVER ENRIQUECIDO) ---
             st.markdown(f"{flujo_texto} &nbsp; | &nbsp; **Unidades evaluadas:** `{len(df_c)}`")
             
             datos_timeline = []
             mapa_colores_tl = {}
             for nombre_etapa, col_etapa, color_hex in tramos_secuenciales:
-                prom_val = df_c[col_etapa].mean()
-                if pd.notna(prom_val) and prom_val > 0:
+                serie_ok = df_c[col_etapa].dropna()
+                if not serie_ok.empty and serie_ok.mean() > 0:
+                    prom_val = serie_ok.mean()
+                    sla_et = sla_config[col_etapa]["sla"]
+                    estado_et = "✅ En objetivo" if prom_val <= sla_et else f"🚨 +{prom_val - sla_et:.1f} d sobre SLA"
                     datos_timeline.append({
                         "Proceso": "Promedio del Ciclo",
                         "Etapa": nombre_etapa,
-                        "Días": round(prom_val, 1)
+                        "Días": round(prom_val, 1),
+                        "SLA": sla_et,
+                        "Unidades": len(serie_ok),
+                        "Estado": estado_et
                     })
                     mapa_colores_tl[nombre_etapa] = color_hex
 
@@ -1002,13 +1009,18 @@ try:
                 df_tl = pd.DataFrame(datos_timeline)
                 fig_tl = px.bar(
                     df_tl, x="Días", y="Proceso", color="Etapa", orientation="h",
-                    text="Días", color_discrete_map=mapa_colores_tl,
-                    title="🧭 Radiografía del Ciclo Promedio (Días Hábiles por Etapa)",
+                    text="Días", custom_data=["Etapa", "SLA", "Unidades", "Estado"],
+                    color_discrete_map=mapa_colores_tl,
+                    title="🧭 Radiografía del Ciclo Promedio (Pasá el cursor por cada etapa)",
                     template="plotly_white"
                 )
-                fig_tl.update_traces(texttemplate="%{text:.1f} d", textposition="inside")
+                fig_tl.update_traces(
+                    texttemplate="%{text:.1f} d",
+                    textposition="inside",
+                    hovertemplate="<b>%{customdata[0]}</b><br>Promedio real: <b>%{x:.1f} días</b><br>Objetivo SLA: %{customdata[1]} días<br>Unidades medidas: %{customdata[2]}<br>Estado: <b>%{customdata[3]}</b><extra></extra>"
+                )
                 fig_tl.update_layout(
-                    barmode="stack", height=180,
+                    barmode="stack", height=185,
                     margin=dict(t=40, b=10, l=10, r=10),
                     yaxis_title="", xaxis_title="Días Hábiles Acumulados",
                     legend=dict(orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5, title="")
@@ -1018,7 +1030,7 @@ try:
             st.divider()
 
             # --- B. BOTONES INTERACTIVOS (PILLS) ---
-            st.caption("💡 Hacé clic en un tramo para auditar su % de cumplimiento, comparativa por marca y ordenar la matriz inferior.")
+            st.caption("💡 Hacé clic en un tramo para auditar su % de cumplimiento y habilitá el cruce interactivo entre gráficos y clientes.")
             
             opciones_pills = []
             mapa_pills_a_columna = {}
@@ -1047,12 +1059,21 @@ try:
 
             st.info(f"ℹ️ **¿Qué calcula este tramo?** {desc_actual}")
 
-            # --- C. DASHBOARD GERENCIAL (GRÁFICOS) ---
+            # --- C. DASHBOARD GERENCIAL INTERACTIVO (HOVER + CLIC PARA FILTRAR) ---
             st.write(f"#### Análisis Detallado: **{sla_config[col_kpi]['label']}** (Objetivo: {sla_actual} días)")
             
             df_kpi = df_c[df_c[col_kpi].notna()].copy()
+            status_click = None
+            marca_click = None
 
             if not df_kpi.empty:
+                df_kpi["Status SLA"] = np.where(df_kpi[col_kpi] <= sla_actual, "✅ En Término", "🚨 Demorado")
+                if "Marca" in df_kpi.columns:
+                    df_kpi["Marca_Lim"] = np.where(df_kpi["Marca"].astype(str).str.upper().str.contains("PEUGEOT"), "Peugeot",
+                                          np.where(df_kpi["Marca"].astype(str).str.upper().str.contains("CITRO"), "Citroën", "Otra"))
+                else:
+                    df_kpi["Marca_Lim"] = "Otra"
+
                 # Métricas especiales de higiene de carga para Gestión Administrativa (FPP -> FGRD)
                 if col_kpi == "T. Adm desde FPP":
                     conteo_aud = df_kpi["Auditoría Carga Legajo"].value_counts(normalize=True) * 100
@@ -1066,54 +1087,116 @@ try:
                 
                 col_chart1, col_chart2 = st.columns(2)
                 
-                # Gráfico 1: Tasa de Cumplimiento (Donut)
-                df_kpi["Status SLA"] = np.where(df_kpi[col_kpi] <= sla_actual, "✅ En Término", "🚨 Demorado")
-                conteo_sla = df_kpi["Status SLA"].value_counts().reset_index()
-                conteo_sla.columns = ["Status", "Cantidad"]
+                # --- Gráfico 1: Tasa de Cumplimiento (Donut Interactivo) ---
+                res_sla_list = []
+                for status_val, grp in df_kpi.groupby("Status SLA"):
+                    prom_grp = grp[col_kpi].mean()
+                    top_clis = grp.sort_values(by=col_kpi, ascending=False).head(3)
+                    txt_clis = "<br>".join([f"• {str(r.get('Cliente', '-'))[:28]}: <b>{int(round(r[col_kpi]))}d</b>" for _, r in top_clis.iterrows()])
+                    detalle_h = f"Promedio del grupo: <b>{prom_grp:.1f} días</b><br><br><b>Casos destacados:</b><br>{txt_clis}"
+                    res_sla_list.append({"Status": status_val, "Cantidad": len(grp), "Detalle_Hover": detalle_h})
                 
-                fig_donut = px.pie(
-                    conteo_sla, values="Cantidad", names="Status", hole=0.5,
-                    title="Tasa de Cumplimiento",
-                    color="Status",
-                    color_discrete_map={"✅ En Término": "#2ecc71", "🚨 Demorado": "#e74c3c"}
+                conteo_sla = pd.DataFrame(res_sla_list)
+                colores_sla = {"✅ En Término": "#2ecc71", "🚨 Demorado": "#e74c3c"}
+                
+                fig_donut = go.Figure(data=[go.Pie(
+                    labels=conteo_sla["Status"],
+                    values=conteo_sla["Cantidad"],
+                    hole=0.5,
+                    marker=dict(colors=[colores_sla.get(s, "#95a5a6") for s in conteo_sla["Status"]]),
+                    textinfo="percent+value",
+                    customdata=conteo_sla["Detalle_Hover"],
+                    hovertemplate="<b>%{label}</b><br>Unidades: <b>%{value}</b> (%{percent})<br>%{customdata}<extra></extra>"
+                )])
+                fig_donut.update_layout(
+                    title="Tasa de Cumplimiento (💡 Clic para filtrar tabla)",
+                    height=330, margin=dict(t=45, b=10, l=10, r=10),
+                    template="plotly_white"
                 )
-                fig_donut.update_traces(textinfo='percent+value', hoverinfo='label+percent')
-                fig_donut.update_layout(height=320, margin=dict(t=40, b=0, l=0, r=0))
-                col_chart1.plotly_chart(fig_donut, use_container_width=True, key=f"g_donut_{prefijo_key}")
+                evento_donut = col_chart1.plotly_chart(fig_donut, use_container_width=True, on_select="rerun", key=f"g_donut_{prefijo_key}")
+                if evento_donut and "selection" in evento_donut and evento_donut["selection"]["points"]:
+                    pt_d = evento_donut["selection"]["points"][0]
+                    status_click = pt_d.get("label")
+                    if not status_click and "point_number" in pt_d:
+                        idx_pt = pt_d["point_number"]
+                        if 0 <= idx_pt < len(conteo_sla):
+                            status_click = conteo_sla.iloc[idx_pt]["Status"]
 
-                # Gráfico 2: Comparativa por Marca (Barras)
-                if "Marca" in df_kpi.columns:
-                    df_kpi["Marca_Lim"] = np.where(df_kpi["Marca"].astype(str).str.upper().str.contains("PEUGEOT"), "Peugeot",
-                                          np.where(df_kpi["Marca"].astype(str).str.upper().str.contains("CITRO"), "Citroën", "Otra"))
-                    
-                    promedios_marca = df_kpi.groupby("Marca_Lim")[col_kpi].mean().reset_index()
-                    fig_bar = px.bar(
-                        promedios_marca, x="Marca_Lim", y=col_kpi, text_auto=".1f",
-                        title="Promedio por Marca",
-                        color="Marca_Lim",
-                        color_discrete_map={"Peugeot": "#1e3d59", "Citroën": "#ff6e40", "Otra": "#b0bec5"},
-                        template="plotly_white"
+                # --- Gráfico 2: Comparativa por Marca (Barras Interactivas) ---
+                res_marca_list = []
+                for m_val, grp in df_kpi.groupby("Marca_Lim"):
+                    prom_m = grp[col_kpi].mean()
+                    pct_ok_m = (grp[col_kpi] <= sla_actual).mean() * 100
+                    peor = grp.sort_values(by=col_kpi, ascending=False).iloc[0]
+                    peor_txt = f"{str(peor.get('Cliente', '-'))[:26]} ({int(round(peor[col_kpi]))}d)"
+                    res_marca_list.append({
+                        "Marca_Lim": m_val,
+                        "Promedio": prom_m,
+                        "Unidades": len(grp),
+                        "Pct_OK": pct_ok_m,
+                        "Peor_Caso": peor_txt
+                    })
+
+                promedios_marca = pd.DataFrame(res_marca_list)
+                fig_bar = px.bar(
+                    promedios_marca, x="Marca_Lim", y="Promedio", text_auto=".1f",
+                    custom_data=["Unidades", "Pct_OK", "Peor_Caso"],
+                    title="Promedio por Marca (💡 Clic para filtrar tabla)",
+                    color="Marca_Lim",
+                    color_discrete_map={"Peugeot": "#1e3d59", "Citroën": "#ff6e40", "Otra": "#b0bec5"},
+                    template="plotly_white"
+                )
+                fig_bar.update_traces(
+                    hovertemplate=(
+                        "<b>%{x}</b><br>"
+                        "Promedio: <b>%{y:.1f} días hábiles</b><br>"
+                        "Objetivo SLA: " + f"{sla_actual} días<br>"
+                        "Unidades: <b>%{customdata[0]}</b> | En término: <b>%{customdata[1]:.1f}%</b><br>"
+                        "Mayor demora: %{customdata[2]}<extra></extra>"
                     )
-                    fig_bar.add_hline(y=sla_actual, line_dash="dot", line_color="red", annotation_text="Objetivo SLA")
-                    fig_bar.update_layout(height=320, margin=dict(t=40, b=0, l=0, r=0), showlegend=False, xaxis_title="", yaxis_title="Días Hábiles")
-                    col_chart2.plotly_chart(fig_bar, use_container_width=True, key=f"g_bar_{prefijo_key}")
+                )
+                fig_bar.add_hline(y=sla_actual, line_dash="dot", line_color="red", annotation_text="Objetivo SLA")
+                fig_bar.update_layout(height=330, margin=dict(t=45, b=10, l=10, r=10), showlegend=False, xaxis_title="", yaxis_title="Días Hábiles")
+                evento_bar = col_chart2.plotly_chart(fig_bar, use_container_width=True, on_select="rerun", key=f"g_bar_{prefijo_key}")
+                if evento_bar and "selection" in evento_bar and evento_bar["selection"]["points"]:
+                    marca_click = evento_bar["selection"]["points"][0].get("x")
             else:
                 st.info("No hay registros suficientes para graficar este KPI en el período seleccionado.")
 
-            # --- D. MATRIZ DE AUDITORÍA OPERATIVA ---
+            # --- RESERVAMOS ESPACIO PARA EL GRÁFICO INTERACTIVO DEL CLIENTE SELECCIONADO ---
+            contenedor_cliente = st.container()
+
+            # --- D. MATRIZ DE AUDITORÍA OPERATIVA (CON SELECCIÓN DE CLIENTE) ---
             st.write("### 📋 Matriz de Auditoría Operativa (Rojo = SLA Incumplido)")
 
-            if not df_kpi.empty:
-                df_kpi = df_kpi.sort_values(by=col_kpi, ascending=False)
+            df_kpi_mostrar = df_kpi.copy()
+            filtros_activos = []
+            if status_click:
+                df_kpi_mostrar = df_kpi_mostrar[df_kpi_mostrar["Status SLA"] == status_click]
+                filtros_activos.append(f"Estado: **{status_click}**")
+            if marca_click:
+                df_kpi_mostrar = df_kpi_mostrar[df_kpi_mostrar["Marca_Lim"] == marca_click]
+                filtros_activos.append(f"Marca: **{marca_click}**")
+
+            c_info_f, c_btn_f = st.columns([4, 1])
+            if filtros_activos:
+                c_info_f.info(f"🔎 Filtrando matriz desde gráficos ➔ {' | '.join(filtros_activos)} ({len(df_kpi_mostrar)} unid.)")
+                if c_btn_f.button("❌ Limpiar filtros", key=f"btn_limpiar_{prefijo_key}", use_container_width=True):
+                    st.rerun()
+            else:
+                c_info_f.caption("💡 **Tip interactivo:** Hacé clic en la casilla/fila de cualquier **Cliente** para desplegar arriba su gráfico interactivo de tiempos y fechas exactas.")
+
+            if not df_kpi_mostrar.empty:
+                df_kpi_mostrar = df_kpi_mostrar.sort_values(by=col_kpi, ascending=False).reset_index(drop=True)
 
                 cols_id = ["Vendedor", "Cliente", "Marca", "Chasis", "Auditoría Carga Legajo"]
                 cols_metricas = list(sla_config.keys())
-                cols_ok = [c for c in cols_id + cols_metricas if c in df_kpi.columns]
+                cols_ok = [c for c in cols_id + cols_metricas if c in df_kpi_mostrar.columns]
 
                 mapeo_columnas_tabla = {c_name: c_data["label"] for c_name, c_data in sla_config.items()}
                 mapeo_columnas_tabla["Auditoría Carga Legajo"] = "Estado de Carga"
                 mapeo_columnas_tabla["Vendedor"] = "Asesor"
-                df_kpi_renombrado = df_kpi[cols_ok].rename(columns=mapeo_columnas_tabla)
+                df_kpi_renombrado = df_kpi_mostrar[cols_ok].rename(columns=mapeo_columnas_tabla)
 
                 label_lead_total = sla_config["Lead Time Total"]["label"]
 
@@ -1147,10 +1230,105 @@ try:
                     return estilos
 
                 cols_numericas_formato = [c for c in df_kpi_renombrado.columns if c in [d["label"] for d in sla_config.values()]]
-                df_estilizado = df_kpi_renombrado.style.apply(resaltar_demoras_canal, axis=1).format("{:.0f}", na_rep="-", subset=cols_numericas_formato)
-                st.dataframe(df_estilizado, use_container_width=True, hide_index=True, height=420)
+                df_estilizado = df_kpi_renombrado.style.apply(resaltar_demoras_canal, axis=1).format(
+                    lambda x: f"{int(round(x))}" if pd.notna(x) else "-",
+                    subset=cols_numericas_formato
+                )
+
+                evento_tabla = st.dataframe(
+                    df_estilizado,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=420,
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    key=f"tabla_aud_{prefijo_key}"
+                )
+
+                # --- E. FICHA Y GRÁFICO INTERACTIVO AL HACER CLIC EN UN CLIENTE ---
+                if evento_tabla and "selection" in evento_tabla and evento_tabla["selection"]["rows"]:
+                    idx_sel = evento_tabla["selection"]["rows"][0]
+                    if 0 <= idx_sel < len(df_kpi_mostrar):
+                        row_cli = df_kpi_mostrar.iloc[idx_sel]
+                        nom_cli = str(row_cli.get("Cliente", "Sin Nombre")).strip()
+                        asesor_cli = str(row_cli.get("Vendedor", "-")).strip()
+                        marca_cli = str(row_cli.get("Marca", "-")).strip()
+                        chasis_cli = str(row_cli.get("Chasis", "-")).strip()
+                        estado_carga_cli = str(row_cli.get("Auditoría Carga Legajo", "Sin datos"))
+
+                        with contenedor_cliente:
+                            st.divider()
+                            st.markdown(f"#### 🔍 Radiografía Individual del Cliente: **{nom_cli}**")
+                            st.caption(f"👤 **Asesor:** {asesor_cli} &nbsp;|&nbsp; 🏷️ **Marca:** {marca_cli} &nbsp;|&nbsp; 🔑 **Chasis:** `{chasis_cli}` &nbsp;|&nbsp; 📂 **Carga Legajo:** {estado_carga_cli}")
+
+                            datos_cli = []
+                            for c_name, c_data in sla_config.items():
+                                val_d = row_cli.get(c_name)
+                                if pd.notna(val_d):
+                                    sla_v = c_data["sla"]
+                                    f_i = fmt_fecha_corta(row_cli.get(c_data["f_ini"]))
+                                    f_f = fmt_fecha_corta(row_cli.get(c_data["f_fin"]))
+                                    desvio = int(round(val_d)) - sla_v
+                                    estado_txt = "✅ En Término" if desvio <= 0 else f"🚨 Demorado (+{desvio} d)"
+                                    color_bar = "#2ecc71" if desvio <= 0 else ("#c0392b" if c_name == "Lead Time Total" else "#e74c3c")
+                                    datos_cli.append({
+                                        "Tramo": c_data["label"],
+                                        "Días": int(round(val_d)),
+                                        "SLA": sla_v,
+                                        "Color": color_bar,
+                                        "F_Ini": f_i,
+                                        "F_Fin": f_f,
+                                        "Estado": estado_txt
+                                    })
+
+                            if datos_cli:
+                                df_cli_graf = pd.DataFrame(datos_cli)
+                                fig_cli = go.Figure()
+
+                                # Barras con los días reales del cliente
+                                fig_cli.add_trace(go.Bar(
+                                    x=df_cli_graf["Tramo"],
+                                    y=df_cli_graf["Días"],
+                                    name="Días del Cliente",
+                                    marker_color=df_cli_graf["Color"],
+                                    text=df_cli_graf["Días"].astype(str) + " d",
+                                    textposition="outside",
+                                    customdata=np.stack((df_cli_graf["F_Ini"], df_cli_graf["F_Fin"], df_cli_graf["SLA"], df_cli_graf["Estado"]), axis=-1),
+                                    hovertemplate=(
+                                        "<b>%{x}</b><br>"
+                                        "Fechas: <b>%{customdata[0]} ➔ %{customdata[1]}</b><br>"
+                                        "Demora real: <b>%{y} días hábiles</b><br>"
+                                        "Objetivo SLA: %{customdata[2]} días<br>"
+                                        "Resultado: <b>%{customdata[3]}</b><extra></extra>"
+                                    )
+                                ))
+
+                                # Marcadores del Objetivo SLA por tramo
+                                fig_cli.add_trace(go.Scatter(
+                                    x=df_cli_graf["Tramo"],
+                                    y=df_cli_graf["SLA"],
+                                    name="Objetivo SLA",
+                                    mode="markers+lines",
+                                    line=dict(color="#1e3d59", dash="dot", width=2),
+                                    marker=dict(size=9, symbol="diamond", color="#1e3d59"),
+                                    hovertemplate="<b>%{x}</b><br>Objetivo SLA: <b>%{y} días</b><extra></extra>"
+                                ))
+
+                                fig_cli.update_layout(
+                                    title=f"Comparativa Etapa por Etapa vs. Objetivo SLA — {nom_cli} (Pasá el cursor para ver fechas exactas)",
+                                    yaxis_title="Días Hábiles",
+                                    xaxis_title="",
+                                    height=340,
+                                    template="plotly_white",
+                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                                    margin=dict(t=55, b=20, l=10, r=10)
+                                )
+                                st.plotly_chart(fig_cli, use_container_width=True, key=f"g_cliente_{prefijo_key}")
+                            else:
+                                st.info("Este cliente no tiene fechas completas para graficar sus etapas.")
+                            st.divider()
             else:
-                st.warning("Selecciona otro mes o tramo. No hay datos para mostrar en la matriz.")
+                st.warning("Selecciona otro mes, tramo o limpiá los filtros del gráfico. No hay datos para mostrar en la matriz.")
 
         # 6. SEGMENTACIÓN EXCLUSIVA DE CANALES (SOLO TRADICIONAL Y PLAN DE AHORRO)
         if "Canal de Venta" in df_t_base.columns and not df_t_base.empty:
