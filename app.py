@@ -6,6 +6,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import urllib.parse
+import html
 
 # 1. Configuración de la página
 st.set_page_config(page_title="Portal de Gestión VN", layout="wide", page_icon="🚗")
@@ -756,7 +757,7 @@ try:
                 st.warning("⚠️ No se detectó ninguna de las columnas solicitadas.")
 
     # ---------------------------------------------------------
-    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (LÍNEA DE TIEMPO HORIZONTAL + INTERACTIVO)
+    # PESTAÑA 4: ANÁLISIS DE TIEMPOS (STEPPER HORIZONTAL CORPORATIVO + INTERACTIVO)
     # ---------------------------------------------------------
     with tab_tiempos:
         st.header("⏱️ Análisis de Tiempos")
@@ -863,120 +864,113 @@ try:
             except:
                 return "Sin fecha"
 
-        # 4. FUNCIÓN PARA DIBUJAR LA LÍNEA DE TIEMPO HORIZONTAL (ESTILO ONDULADO PASTEL)
-        def renderizar_linea_tiempo_horizontal(titulo, subtitulo, nodos):
+        # 4. LÍNEA DE TIEMPO HORIZONTAL ESTILO SEGUIMIENTO DE UNIDAD (CORPORATIVA)
+        def renderizar_linea_tiempo_horizontal(titulo_izq, badge_der, nodos):
             n = len(nodos)
             if n == 0:
                 return
 
-            col_w = 235
-            pad_x = 24
-            total_w = n * col_w + 2 * pad_x
-            h = 445
-            y_mid = 222
-            rx = col_w / 2.0
-            ry = 64
+            titulo_safe = html.escape(str(titulo_izq))
+            badge_safe = html.escape(str(badge_der))
 
-            # Construcción de la curva ondulada continua y punteros alternados (arriba / abajo)
-            path_parts = [f"M {pad_x} {y_mid}"]
-            triangulos_svg = []
-            for i in range(n):
-                x_end = pad_x + (i + 1) * col_w
-                cx = pad_x + i * col_w + rx
-                sweep = 1 if i % 2 == 0 else 0  # 1 = arco hacia arriba, 0 = arco hacia abajo
-                path_parts.append(f"A {rx} {ry} 0 0 {sweep} {x_end} {y_mid}")
-
-                if i % 2 == 0:
-                    y_peak = y_mid - ry
-                    triangulos_svg.append(
-                        f'<polygon points="{cx - 8},{y_peak + 1} {cx + 8},{y_peak + 1} {cx},{y_peak - 12}" fill="#cbd5e1" />'
-                    )
-                else:
-                    y_peak = y_mid + ry
-                    triangulos_svg.append(
-                        f'<polygon points="{cx - 8},{y_peak - 1} {cx + 8},{y_peak - 1} {cx},{y_peak + 12}" fill="#cbd5e1" />'
-                    )
-
-            path_d = " ".join(path_parts)
-            x_fin_total = pad_x + n * col_w
-
-            svg_wave = (
-                f'<svg width="{total_w}" height="{h}" viewBox="0 0 {total_w} {h}" '
-                f'style="position:absolute; top:0; left:0; pointer-events:none;">'
-                f'<path d="{path_d}" fill="none" stroke="#cbd5e1" stroke-width="5" stroke-linecap="round" />'
-                f'<circle cx="{pad_x}" cy="{y_mid}" r="6" fill="#cbd5e1" />'
-                f'<circle cx="{x_fin_total}" cy="{y_mid}" r="6" fill="#cbd5e1" />'
-                f'{"".join(triangulos_svg)}'
-                f'</svg>'
-            )
-
-            # Construcción de cada nodo (círculo pastel + píldora de título + descripción)
-            nodos_html = []
+            items_html = []
             for i, nodo in enumerate(nodos):
-                cx = pad_x + i * col_w + rx
-                bg_pastel = nodo["color"]
-                valor_str = nodo["valor_str"]
-                obj_str = nodo["obj_str"]
-                titulo_nodo = nodo["titulo"]
-                desc_nodo = nodo["desc"]
-                incumplido = nodo["incumplido"]
-                tooltip_txt = nodo["tooltip"]
+                estado = nodo["estado"]  # "ok", "alerta", "pendiente"
+                top_val = html.escape(str(nodo["top_val"]))
+                top_sub = html.escape(str(nodo["top_sub"]))
+                titulo_nodo = html.escape(str(nodo["titulo"]))
+                detalle_html = nodo["detalle_html"]  # Permite <br> y <b> controlados
+                status_txt = html.escape(str(nodo["status_txt"]))
+                tooltip_txt = html.escape(str(nodo["tooltip"]))
 
-                borde_circulo = "3px solid #e74c3c" if incumplido else "3px solid rgba(255,255,255,0.9)"
-                badge_alerta = '<span style="color:#c0392b; font-size:10px; font-weight:700;">● Sobre SLA</span>' if incumplido else '<span style="color:#15803d; font-size:10px; font-weight:700;">● En objetivo</span>'
-                if valor_str == "S/D":
-                    borde_circulo = "2px dashed #94a3b8"
-                    badge_alerta = '<span style="color:#64748b; font-size:10px;">Sin datos</span>'
-
-                # Círculo pastel centrado en el arco
-                circle_html = (
-                    f'<div title="{tooltip_txt}" style="position:absolute; left:{cx - 47}px; top:{y_mid - 47}px; '
-                    f'width:94px; height:94px; border-radius:50%; background:{bg_pastel}; border:{borde_circulo}; '
-                    f'display:flex; flex-direction:column; align-items:center; justify-content:center; '
-                    f'box-shadow:0 4px 10px rgba(15,23,42,0.08); cursor:default;">'
-                    f'<div style="font-size:20px; font-weight:800; color:#111827; line-height:1.1;">{valor_str}</div>'
-                    f'<div style="font-size:10.5px; font-weight:600; color:#334155; margin-top:2px;">{obj_str}</div>'
-                    f'</div>'
-                )
-
-                # Etiqueta redondeada + texto descriptivo (arriba en pares, abajo en impares)
-                card_left = pad_x + i * col_w + 8
-                card_w = col_w - 16
-                if i % 2 == 0:
-                    box_style = (
-                        f'position:absolute; left:{card_left}px; top:4px; width:{card_w}px; height:{y_mid - ry - 20}px; '
-                        f'display:flex; flex-direction:column; align-items:center; justify-content:flex-end; text-align:center;'
-                    )
+                # Estilos del círculo y estado según cumplimiento
+                if estado == "ok":
+                    circulo_style = "background:#1e3a5f; border:2px solid #1e3a5f; color:#ffffff;"
+                    icono_circulo = "&#10003;"  # ✓
+                    status_color = "#475569"
+                    top_val_color = "#0f172a"
+                elif estado == "alerta":
+                    circulo_style = "background:#dc2626; border:2px solid #dc2626; color:#ffffff;"
+                    icono_circulo = "!"
+                    status_color = "#dc2626"
+                    top_val_color = "#b91c1c"
                 else:
-                    box_style = (
-                        f'position:absolute; left:{card_left}px; top:{y_mid + ry + 16}px; width:{card_w}px; height:{h - (y_mid + ry + 20)}px; '
-                        f'display:flex; flex-direction:column; align-items:center; justify-content:flex-start; text-align:center;'
-                    )
+                    circulo_style = "background:#ffffff; border:2px solid #475569; color:#334155;"
+                    icono_circulo = "&bull;&bull;&bull;"
+                    status_color = "#64748b"
+                    top_val_color = "#64748b"
 
-                text_box_html = (
-                    f'<div title="{tooltip_txt}" style="{box_style}">'
-                    f'<div style="background:{bg_pastel}; color:#0f172a; font-weight:700; font-size:11.5px; '
-                    f'line-height:1.25; padding:5px 12px; border-radius:14px; display:inline-block; '
-                    f'max-width:100%; box-shadow:0 1px 3px rgba(0,0,0,0.06);">{titulo_nodo}</div>'
-                    f'<div style="font-size:11px; line-height:1.3; color:#334155; margin-top:5px;">{desc_nodo}</div>'
-                    f'<div style="margin-top:2px;">{badge_alerta}</div>'
+                # Líneas conectoras izquierda y derecha
+                prev_activo = (i > 0 and nodos[i - 1]["estado"] != "pendiente")
+                curr_activo = (estado != "pendiente")
+                color_izq = "#1e3a5f" if (prev_activo and curr_activo) else "#cbd5e1"
+                next_activo = (i < n - 1 and nodos[i + 1]["estado"] != "pendiente")
+                color_der = "#1e3a5f" if (curr_activo and next_activo) else "#cbd5e1"
+
+                linea_izq = (
+                    f'<div style="position:absolute; left:0; top:50%; width:50%; height:2px; '
+                    f'background:{color_izq}; transform:translateY(-50%); z-index:1;"></div>'
+                ) if i > 0 else ""
+
+                linea_der = (
+                    f'<div style="position:absolute; right:0; top:50%; width:50%; height:2px; '
+                    f'background:{color_der}; transform:translateY(-50%); z-index:1;"></div>'
+                ) if i < n - 1 else ""
+
+                # Bloque superior (Valor + subetiqueta + conector vertical hacia el nodo)
+                bloque_top = (
+                    f'<div style="height:56px; display:flex; flex-direction:column; align-items:center; '
+                    f'justify-content:flex-end; text-align:center; padding:0 4px;">'
+                    f'<div style="font-size:13.5px; font-weight:800; color:{top_val_color}; line-height:1.15;">{top_val}</div>'
+                    f'<div style="font-size:10px; font-weight:600; color:#64748b; text-transform:uppercase; '
+                    f'letter-spacing:0.4px; margin-top:2px;">{top_sub}</div>'
+                    f'<div style="width:1px; height:14px; background:#94a3b8; margin-top:3px;"></div>'
                     f'</div>'
                 )
 
-                nodos_html.append(circle_html + text_box_html)
+                # Fila del círculo con línea conectora
+                fila_circulo = (
+                    f'<div style="position:relative; width:100%; height:38px; display:flex; '
+                    f'align-items:center; justify-content:center;">'
+                    f'{linea_izq}{linea_der}'
+                    f'<div title="{tooltip_txt}" style="position:relative; z-index:2; width:34px; height:34px; '
+                    f'border-radius:50%; {circulo_style} display:flex; align-items:center; justify-content:center; '
+                    f'font-size:14px; font-weight:800; box-shadow:0 2px 6px rgba(15,23,42,0.10); cursor:default;">'
+                    f'{icono_circulo}'
+                    f'</div>'
+                    f'</div>'
+                )
+
+                # Bloque inferior (Título del tramo + detalle + estado en mayúsculas)
+                bloque_bottom = (
+                    f'<div style="padding:10px 8px 4px 8px; text-align:center;">'
+                    f'<div style="font-size:12px; font-weight:700; color:#0f172a; line-height:1.3;">{titulo_nodo}</div>'
+                    f'<div style="font-size:11px; color:#475569; margin-top:4px; line-height:1.35;">{detalle_html}</div>'
+                    f'<div style="font-size:10px; font-weight:700; color:{status_color}; letter-spacing:0.6px; '
+                    f'text-transform:uppercase; margin-top:7px;">{status_txt}</div>'
+                    f'</div>'
+                )
+
+                items_html.append(
+                    f'<div title="{tooltip_txt}" style="flex:1 1 0; min-width:170px; display:flex; '
+                    f'flex-direction:column; align-items:center;">'
+                    f'{bloque_top}{fila_circulo}{bloque_bottom}'
+                    f'</div>'
+                )
 
             html_final = (
-                f'<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:16px; '
-                f'padding:20px 14px 12px 14px; font-family:Inter, -apple-system, BlinkMacSystemFont, sans-serif; '
-                f'box-shadow:0 2px 8px rgba(15,23,42,0.04);">'
-                f'<div style="text-align:center; margin-bottom:4px;">'
-                f'<div style="font-size:24px; font-weight:800; color:#0f172a; letter-spacing:-0.3px;">{titulo}</div>'
-                f'<div style="font-size:13.5px; color:#475569; margin-top:2px;">{subtitulo}</div>'
+                f'<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; '
+                f'padding:20px 24px 18px 24px; margin:6px 0 12px 0; '
+                f'font-family:Inter, -apple-system, BlinkMacSystemFont, sans-serif;">'
+                f'<div style="display:flex; justify-content:space-between; align-items:center; '
+                f'flex-wrap:wrap; gap:10px; margin-bottom:14px;">'
+                f'<div style="font-size:16px; font-weight:800; color:#0f172a; letter-spacing:0.2px;">{titulo_safe}</div>'
+                f'<div style="font-size:11.5px; font-weight:600; color:#334155; background:#e2e8f0; '
+                f'padding:4px 12px; border-radius:6px;">{badge_safe}</div>'
                 f'</div>'
-                f'<div style="overflow-x:auto; padding:4px 0;">'
-                f'<div style="position:relative; width:{total_w}px; height:{h}px; margin:0 auto;">'
-                f'{svg_wave}'
-                f'{"".join(nodos_html)}'
+                f'<div style="overflow-x:auto; padding-bottom:4px;">'
+                f'<div style="display:flex; align-items:flex-start; justify-content:space-between; width:100%; min-width:{n * 175}px;">'
+                f'{"".join(items_html)}'
                 f'</div>'
                 f'</div>'
                 f'</div>'
@@ -1102,28 +1096,30 @@ try:
                 if col_m in df_c.columns:
                     df_c[col_m] = pd.to_numeric(df_c[col_m], errors="coerce")
 
-            # --- A. LÍNEA DE TIEMPO HORIZONTAL (ESTILO PASTEL ONDULADO) ---
-            def armar_nodo(col_df, titulo_n, desc_n, color_hex, sla_val):
+            # --- A. LÍNEA DE TIEMPO HORIZONTAL (PROMEDIO DEL CANAL) ---
+            def armar_nodo_promedio(col_df, titulo_n, detalle_n, sla_val):
                 s_ok = df_c[col_df].dropna()
                 if s_ok.empty:
                     return {
                         "titulo": titulo_n,
-                        "desc": desc_n,
-                        "color": color_hex,
-                        "valor_str": "S/D",
-                        "obj_str": f"Obj: {sla_val}d",
-                        "incumplido": False,
+                        "detalle_html": detalle_n,
+                        "top_val": "Sin datos",
+                        "top_sub": f"Obj: {sla_val} d",
+                        "estado": "pendiente",
+                        "status_txt": "SIN DATOS",
                         "tooltip": f"{titulo_n} — Sin datos en el período seleccionado"
                     }
                 prom = s_ok.mean()
                 pct_ok = (s_ok <= sla_val).mean() * 100
+                supera = prom > sla_val
+                desvio_str = f"SOBRE SLA (+{prom - sla_val:.1f}d)" if supera else "EN TÉRMINO"
                 return {
                     "titulo": titulo_n,
-                    "desc": desc_n,
-                    "color": color_hex,
-                    "valor_str": f"{prom:.1f} d",
-                    "obj_str": f"Obj: {sla_val}d",
-                    "incumplido": bool(prom > sla_val),
+                    "detalle_html": detalle_n,
+                    "top_val": f"{prom:.1f} días",
+                    "top_sub": f"Obj: {sla_val} d · {pct_ok:.0f}% OK",
+                    "estado": "alerta" if supera else "ok",
+                    "status_txt": desvio_str,
                     "tooltip": f"{titulo_n} | Promedio: {prom:.1f} d | SLA: {sla_val} d | En término: {pct_ok:.1f}% ({len(s_ok)} unid.)"
                 }
 
@@ -1131,31 +1127,31 @@ try:
             prom_pap = df_c["Días Papeles"].mean()
             txt_insc = f"{prom_insc:.1f}d" if pd.notna(prom_insc) else "S/D"
             txt_pap = f"{prom_pap:.1f}d" if pd.notna(prom_pap) else "S/D"
-            desc_gestor = f"FGRD ➔ Disp. Papeles<br>Inscripción: <b>{txt_insc}</b> | Papeles: <b>{txt_pap}</b>"
+            detalle_gestor = f"FGRD ➔ Disp. Papeles<br>Inscripción: <b>{txt_insc}</b> · Papeles: <b>{txt_pap}</b>"
 
             if es_tradicional:
                 nodos_tl = [
-                    armar_nodo("T. Adm desde FF", "Tiempo de Administración después de la fecha de facturación", "FF ➔ FPP (Facturación a Pedido de Preparación)", "#c5d9f8", sla_config["T. Adm desde FF"]["sla"]),
-                    armar_nodo("T. Adm desde FPP", "Tiempo de Administración después de la Fecha de Preparación de Pedido", "FPP ➔ FGRD (Armado de legajo hasta retiro del gestor)", "#d8c8f8", sla_config["T. Adm desde FPP"]["sla"]),
-                    armar_nodo("Lead Time Gestoría", "Tiempo de Gestor", desc_gestor, "#f9c6df", sla_config["Lead Time Gestoría"]["sla"]),
-                    armar_nodo("Días USI", "Tiempo de entrega", "Disp. Papeles ➔ Conf. Entrega (Alistamiento y entrega)", "#f9e09b", sla_config["Días USI"]["sla"]),
-                    armar_nodo("Lead Time Total", "Lead Time Total", "FF ➔ Conf. Entrega (Ciclo completo Tradicional)", "#b6eccb", sla_config["Lead Time Total"]["sla"])
+                    armar_nodo_promedio("T. Adm desde FF", "Tiempo de Administración después de la fecha de facturación", "FF ➔ FPP", sla_config["T. Adm desde FF"]["sla"]),
+                    armar_nodo_promedio("T. Adm desde FPP", "Tiempo de Administración después de la Fecha de Preparación de Pedido", "FPP ➔ FGRD", sla_config["T. Adm desde FPP"]["sla"]),
+                    armar_nodo_promedio("Lead Time Gestoría", "Tiempo de Gestor", detalle_gestor, sla_config["Lead Time Gestoría"]["sla"]),
+                    armar_nodo_promedio("Días USI", "Tiempo de entrega", "Disp. Papeles ➔ Conf. Entrega", sla_config["Días USI"]["sla"]),
+                    armar_nodo_promedio("Lead Time Total", "Lead Time Total", "FF ➔ Conf. Entrega", sla_config["Lead Time Total"]["sla"])
                 ]
                 renderizar_linea_tiempo_horizontal(
-                    titulo="Línea de tiempo",
-                    subtitulo=f"Línea cronológica — Canal Tradicional (T) · {len(df_c)} unidades evaluadas",
+                    titulo_izq="CANAL TRADICIONAL (T) — PROMEDIO DEL CICLO",
+                    badge_der=f"Tradicional | {len(df_c)} unidades",
                     nodos=nodos_tl
                 )
             else:
                 nodos_tl = [
-                    armar_nodo("T. Adm desde FPP", "Tiempo de Administración después de la Fecha de Preparación de Pedido", "FPP ➔ FGRD (Armado de legajo hasta retiro del gestor)", "#d8c8f8", sla_config["T. Adm desde FPP"]["sla"]),
-                    armar_nodo("Lead Time Gestoría", "Tiempo de Gestor", desc_gestor, "#f9c6df", sla_config["Lead Time Gestoría"]["sla"]),
-                    armar_nodo("Días USI", "Tiempo de entrega", "Disp. Papeles ➔ Conf. Entrega (Alistamiento y entrega)", "#f9e09b", sla_config["Días USI"]["sla"]),
-                    armar_nodo("Lead Time Total", "Lead Time Total", "FPP ➔ Conf. Entrega (Ciclo completo Plan de Ahorro)", "#b6eccb", sla_config["Lead Time Total"]["sla"])
+                    armar_nodo_promedio("T. Adm desde FPP", "Tiempo de Administración después de la Fecha de Preparación de Pedido", "FPP ➔ FGRD", sla_config["T. Adm desde FPP"]["sla"]),
+                    armar_nodo_promedio("Lead Time Gestoría", "Tiempo de Gestor", detalle_gestor, sla_config["Lead Time Gestoría"]["sla"]),
+                    armar_nodo_promedio("Días USI", "Tiempo de entrega", "Disp. Papeles ➔ Conf. Entrega", sla_config["Días USI"]["sla"]),
+                    armar_nodo_promedio("Lead Time Total", "Lead Time Total", "FPP ➔ Conf. Entrega", sla_config["Lead Time Total"]["sla"])
                 ]
                 renderizar_linea_tiempo_horizontal(
-                    titulo="Línea de tiempo",
-                    subtitulo=f"Línea cronológica — Plan de Ahorro (PDA) · {len(df_c)} unidades evaluadas",
+                    titulo_izq="PLAN DE AHORRO (PDA) — PROMEDIO DEL CICLO",
+                    badge_der=f"Plan de Ahorro | {len(df_c)} unidades",
                     nodos=nodos_tl
                 )
 
@@ -1295,7 +1291,7 @@ try:
             else:
                 st.info("No hay registros suficientes para graficar este KPI en el período seleccionado.")
 
-            # --- RESERVAMOS ESPACIO PARA EL GRÁFICO INTERACTIVO DEL CLIENTE SELECCIONADO ---
+            # --- RESERVAMOS ESPACIO PARA EL SEGUIMIENTO INDIVIDUAL DEL CLIENTE SELECCIONADO ---
             contenedor_cliente = st.container()
 
             # --- D. MATRIZ DE AUDITORÍA OPERATIVA (CON SELECCIÓN DE CLIENTE) ---
@@ -1316,7 +1312,7 @@ try:
                 if c_btn_f.button("❌ Limpiar filtros", key=f"btn_limpiar_{prefijo_key}", use_container_width=True):
                     st.rerun()
             else:
-                c_info_f.caption("💡 **Tip interactivo:** Hacé clic en la casilla/fila de cualquier **Cliente** para desplegar arriba su gráfico interactivo de tiempos y fechas exactas.")
+                c_info_f.caption("💡 **Tip interactivo:** Hacé clic en el casillero izquierdo de cualquier fila para ver arriba la línea de tiempo y fechas exactas de ese cliente.")
 
             if not df_kpi_mostrar.empty:
                 df_kpi_mostrar = df_kpi_mostrar.sort_values(by=col_kpi, ascending=False).reset_index(drop=True)
@@ -1377,7 +1373,7 @@ try:
                     key=f"tabla_aud_{prefijo_key}"
                 )
 
-                # --- E. FICHA Y GRÁFICO INTERACTIVO AL HACER CLIC EN UN CLIENTE ---
+                # --- E. SEGUIMIENTO INDIVIDUAL DEL CLIENTE (STEPPER + GRÁFICO INTERACTIVO) ---
                 if evento_tabla and "selection" in evento_tabla and evento_tabla["selection"]["rows"]:
                     idx_sel = evento_tabla["selection"]["rows"][0]
                     if 0 <= idx_sel < len(df_kpi_mostrar):
@@ -1388,10 +1384,60 @@ try:
                         chasis_cli = str(row_cli.get("Chasis", "-")).strip()
                         estado_carga_cli = str(row_cli.get("Auditoría Carga Legajo", "Sin datos"))
 
+                        def armar_nodo_cliente(col_df, titulo_n):
+                            c_data = sla_config[col_df]
+                            val_d = row_cli.get(col_df)
+                            sla_v = c_data["sla"]
+                            f_i = fmt_fecha_corta(row_cli.get(c_data["f_ini"]))
+                            f_f = fmt_fecha_corta(row_cli.get(c_data["f_fin"]))
+                            detalle_f = f"{f_i} ➔ {f_f}"
+                            if pd.isna(val_d):
+                                return {
+                                    "titulo": titulo_n,
+                                    "detalle_html": detalle_f,
+                                    "top_val": "Sin datos",
+                                    "top_sub": f"Obj: {sla_v} d",
+                                    "estado": "pendiente",
+                                    "status_txt": "PENDIENTE",
+                                    "tooltip": f"{titulo_n} | Fechas: {detalle_f}"
+                                }
+                            dias_int = int(round(val_d))
+                            supera = dias_int > sla_v
+                            return {
+                                "titulo": titulo_n,
+                                "detalle_html": detalle_f,
+                                "top_val": f"{dias_int} días",
+                                "top_sub": f"Obj: {sla_v} d",
+                                "estado": "alerta" if supera else "ok",
+                                "status_txt": f"DEMORADO (+{dias_int - sla_v}d)" if supera else "CONCLUIDO",
+                                "tooltip": f"{titulo_n} | {detalle_f} | Demora: {dias_int} d (SLA: {sla_v} d)"
+                            }
+
                         with contenedor_cliente:
                             st.divider()
-                            st.markdown(f"#### 🔍 Radiografía Individual del Cliente: **{nom_cli}**")
-                            st.caption(f"👤 **Asesor:** {asesor_cli} &nbsp;|&nbsp; 🏷️ **Marca:** {marca_cli} &nbsp;|&nbsp; 🔑 **Chasis:** `{chasis_cli}` &nbsp;|&nbsp; 📂 **Carga Legajo:** {estado_carga_cli}")
+                            st.markdown("#### 🔍 Seguimiento de Unidad")
+
+                            if es_tradicional:
+                                nodos_cli = [
+                                    armar_nodo_cliente("T. Adm desde FF", "Tiempo de Administración después de la fecha de facturación"),
+                                    armar_nodo_cliente("T. Adm desde FPP", "Tiempo de Administración después de la Fecha de Preparación de Pedido"),
+                                    armar_nodo_cliente("Lead Time Gestoría", "Tiempo de Gestor"),
+                                    armar_nodo_cliente("Días USI", "Tiempo de entrega"),
+                                    armar_nodo_cliente("Lead Time Total", "Lead Time Total")
+                                ]
+                            else:
+                                nodos_cli = [
+                                    armar_nodo_cliente("T. Adm desde FPP", "Tiempo de Administración después de la Fecha de Preparación de Pedido"),
+                                    armar_nodo_cliente("Lead Time Gestoría", "Tiempo de Gestor"),
+                                    armar_nodo_cliente("Días USI", "Tiempo de entrega"),
+                                    armar_nodo_cliente("Lead Time Total", "Lead Time Total")
+                                ]
+
+                            renderizar_linea_tiempo_horizontal(
+                                titulo_izq=f"{nom_cli} — {chasis_cli}",
+                                badge_der=f"{marca_cli} | Asesor: {asesor_cli} | {estado_carga_cli}",
+                                nodos=nodos_cli
+                            )
 
                             datos_cli = []
                             for c_name, c_data in sla_config.items():
@@ -1448,14 +1494,12 @@ try:
                                     title=f"Comparativa Etapa por Etapa vs. Objetivo SLA — {nom_cli} (Pasá el cursor para ver fechas exactas)",
                                     yaxis_title="Días Hábiles",
                                     xaxis_title="",
-                                    height=360,
+                                    height=350,
                                     template="plotly_white",
                                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                                     margin=dict(t=55, b=20, l=10, r=10)
                                 )
                                 st.plotly_chart(fig_cli, use_container_width=True, key=f"g_cliente_{prefijo_key}")
-                            else:
-                                st.info("Este cliente no tiene fechas completas para graficar sus etapas.")
                             st.divider()
             else:
                 st.warning("Selecciona otro mes, tramo o limpiá los filtros del gráfico. No hay datos para mostrar en la matriz.")
